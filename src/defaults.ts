@@ -1,14 +1,26 @@
 import { fileURLToPath } from "node:url";
-import type { DecorationSpec } from "./types.js";
+import type { DecorationAssetId, DecorationSpec } from "./types.js";
+
+const DECORATION_FILES: Record<DecorationAssetId, string> = {
+  seal: "seal.png",
+  cloud: "cloud.png",
+  tape: "tape.png",
+};
+
+export function decorationPathForAsset(assetId: DecorationAssetId): string {
+  return fileURLToPath(
+    new URL(
+      `../assets/decorations/${DECORATION_FILES[assetId]}`,
+      import.meta.url,
+    ),
+  );
+}
 
 export function defaultDecorations(): DecorationSpec[] {
-  const asset = (name: string) =>
-    fileURLToPath(new URL(`../assets/decorations/${name}`, import.meta.url));
-
   return [
     {
       id: "seal",
-      path: asset("seal.png"),
+      path: decorationPathForAsset("seal"),
       widthRatio: 0.14,
       opacity: 0.9,
       marginRatio: 0.04,
@@ -16,7 +28,7 @@ export function defaultDecorations(): DecorationSpec[] {
     },
     {
       id: "cloud",
-      path: asset("cloud.png"),
+      path: decorationPathForAsset("cloud"),
       widthRatio: 0.24,
       opacity: 0.72,
       marginRatio: 0.04,
@@ -24,7 +36,7 @@ export function defaultDecorations(): DecorationSpec[] {
     },
     {
       id: "tape",
-      path: asset("tape.png"),
+      path: decorationPathForAsset("tape"),
       widthRatio: 0.22,
       opacity: 0.78,
       marginRatio: 0.04,

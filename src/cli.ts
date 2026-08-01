@@ -1,9 +1,17 @@
 import { readFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { parseOptionPairs, runCliIfMain } from "./cli-utils.js";
 import { composeDecorations } from "./composite.js";
-import { defaultDecorations } from "./defaults.js";
-import { ANCHORS, type DecorationSpec } from "./types.js";
+import {
+  decorationPathForAsset,
+  defaultDecorations,
+} from "./defaults.js";
+import {
+  ANCHORS,
+  DECORATION_ASSET_IDS,
+  type DecorationAssetId,
+  type DecorationSpec,
+} from "./types.js";
 
 interface CliArguments {
   inputPath: string;
@@ -20,19 +28,7 @@ function usage() {
 }
 
 function parseArguments(argumentsList: string[]): CliArguments {
-  const normalizedArguments = argumentsList.filter(
-    (argument) => argument !== "--",
-  );
-  const values = new Map<string, string>();
-
-  for (let index = 0; index < normalizedArguments.length; index += 2) {
-    const key = normalizedArguments[index];
-    const value = normalizedArguments[index + 1];
-    if (!key?.startsWith("--") || !value) {
-      throw new Error(usage());
-    }
-    values.set(key, value);
-  }
+  const values = parseOptionPairs(argumentsList, usage());
 
   const inputPath = values.get("--input");
   const outputPath = values.get("--output");
@@ -49,7 +45,12 @@ function parseArguments(argumentsList: string[]): CliArguments {
   };
 }
 
-function isDecorationSpec(value: unknown): value is DecorationSpec {
+interface ManifestDecoration extends Omit<DecorationSpec, "path"> {
+  path?: string;
+  asset?: DecorationAssetId;
+}
+
+function isDecorationSpec(value: unknown): value is ManifestDecoration {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -63,14 +64,24 @@ function isDecorationSpec(value: unknown): value is DecorationSpec {
           typeof anchor === "string" &&
           ANCHORS.includes(anchor as (typeof ANCHORS)[number]),
       ));
+  const assetIsValid =
+    decoration.asset === undefined ||
+    (typeof decoration.asset === "string" &&
+      DECORATION_ASSET_IDS.includes(
+        decoration.asset as DecorationAssetId,
+      ));
+  const hasOneAssetSource =
+    (typeof decoration.path === "string") !==
+    (typeof decoration.asset === "string");
 
   return (
     typeof decoration.id === "string" &&
-    typeof decoration.path === "string" &&
     typeof decoration.widthRatio === "number" &&
     typeof decoration.opacity === "number" &&
     typeof decoration.marginRatio === "number" &&
-    preferredAnchorsAreValid
+    preferredAnchorsAreValid &&
+    assetIsValid &&
+    hasOneAssetSource
   );
 }
 
@@ -87,10 +98,16 @@ async function loadManifest(manifestPath: string): Promise<DecorationSpec[]> {
 
   const manifestDirectory = dirname(manifestPath);
   return raw.decorations.map((decoration) => ({
-    ...decoration,
-    path: isAbsolute(decoration.path)
-      ? decoration.path
-      : resolve(manifestDirectory, decoration.path),
+    id: decoration.id,
+    path: decoration.asset
+      ? decorationPathForAsset(decoration.asset)
+      : isAbsolute(decoration.path!)
+        ? decoration.path!
+        : resolve(manifestDirectory, decoration.path!),
+    widthRatio: decoration.widthRatio,
+    opacity: decoration.opacity,
+    marginRatio: decoration.marginRatio,
+    preferredAnchors: decoration.preferredAnchors,
   }));
 }
 
@@ -111,14 +128,4 @@ export async function runCli(argumentsList = process.argv.slice(2)) {
   );
 }
 
-const entryPath = process.argv[1]
-  ? pathToFileURL(resolve(process.argv[1])).href
-  : "";
-
-if (entryPath === import.meta.url) {
-  runCli().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${message}\n`);
-    process.exitCode = 1;
-  });
-}
+runCliIfMain(import.meta.url, runCli);

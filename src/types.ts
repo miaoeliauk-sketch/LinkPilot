@@ -7,6 +7,9 @@ export const ANCHORS = [
 
 export type Anchor = (typeof ANCHORS)[number];
 
+export const DECORATION_ASSET_IDS = ["seal", "cloud", "tape"] as const;
+export type DecorationAssetId = (typeof DECORATION_ASSET_IDS)[number];
+
 export interface DecorationSpec {
   id: string;
   path: string;
@@ -14,6 +17,11 @@ export interface DecorationSpec {
   opacity: number;
   marginRatio: number;
   preferredAnchors?: Anchor[];
+}
+
+export interface PortableDecorationSpec
+  extends Omit<DecorationSpec, "path"> {
+  asset: DecorationAssetId;
 }
 
 export interface ComposeDecorationsOptions {

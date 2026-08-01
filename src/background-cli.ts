@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { parseOptionPairs, runCliIfMain } from "./cli-utils.js";
 import {
   BACKGROUND_PRESETS,
   composeBackground,
@@ -14,17 +14,7 @@ function usage() {
 }
 
 function parseArguments(argumentsList: string[]) {
-  const normalized = argumentsList.filter((argument) => argument !== "--");
-  const values = new Map<string, string>();
-
-  for (let index = 0; index < normalized.length; index += 2) {
-    const key = normalized[index];
-    const value = normalized[index + 1];
-    if (!key?.startsWith("--") || !value) {
-      throw new Error(usage());
-    }
-    values.set(key, value);
-  }
+  const values = parseOptionPairs(argumentsList, usage());
 
   const inputPath = values.get("--input");
   const outputPath = values.get("--output");
@@ -53,14 +43,4 @@ export async function runBackgroundCli(argumentsList = process.argv.slice(2)) {
   );
 }
 
-const entryPath = process.argv[1]
-  ? pathToFileURL(resolve(process.argv[1])).href
-  : "";
-
-if (entryPath === import.meta.url) {
-  runBackgroundCli().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${message}\n`);
-    process.exitCode = 1;
-  });
-}
+runCliIfMain(import.meta.url, runBackgroundCli);

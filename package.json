@@ -8,6 +8,7 @@
     "build:assets": "tsx scripts/generate-assets.ts",
     "background": "tsx src/background-cli.ts",
     "compose": "tsx src/cli.ts",
+    "intensity": "tsx src/intensity-cli.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
