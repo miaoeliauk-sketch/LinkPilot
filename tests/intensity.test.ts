@@ -43,9 +43,17 @@ describe("buildGenerationPlan", () => {
       expect(plan.prompt).toContain("禁止密集平行排线");
     }
 
-    expect(light.prompt).toContain("保留原图大部分写实感");
+    expect(light.prompt).toContain("保留自然明暗和材质纹理");
+    expect(light.prompt).toContain("不进行通篇线稿化");
+    expect(light.prompt).toContain("主体外轮廓和少数关键结构转折处");
+    expect(light.prompt).not.toContain("禁止写实照片质感");
     expect(standard.prompt).toContain("明确的工笔白描手绘线稿");
-    expect(rich.prompt).toContain("强烈的工笔与水墨表现");
+    expect(standard.prompt).toContain("平面化色块");
+    expect(rich.prompt).toContain("干笔飞白");
+    expect(rich.prompt).toContain("湿墨晕染");
+    expect(rich.prompt).toContain("主体边缘和主要色块");
+    expect(rich.prompt).toContain("结构线粗细均匀");
+    expect(rich.prompt).toContain("水墨笔触必须一眼可见");
   });
 
   it("increases decoration count, size and opacity from light to rich", () => {
