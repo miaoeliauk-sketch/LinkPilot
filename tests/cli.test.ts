@@ -1,5 +1,11 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  readFile,
+  readdir,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -145,5 +151,47 @@ describe("InkPilot command line", () => {
     ).rejects.toMatchObject({
       stderr: expect.stringContaining("装饰配置格式不正确"),
     });
+  });
+
+  it("checks the records directory before creating an output image", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "inkpilot-cli-records-unavailable-"),
+    );
+    const inputPath = join(directory, "input.png");
+    const outputPath = join(directory, "output.png");
+    const unusableRecordsPath = join(directory, "records-file");
+    await sharp({
+      create: {
+        width: 64,
+        height: 64,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .png()
+      .toFile(inputPath);
+    await writeFile(unusableRecordsPath, "not a directory");
+
+    await expect(
+      execFileAsync(
+        "pnpm",
+        [
+          "compose",
+          "--",
+          "--input",
+          inputPath,
+          "--output",
+          outputPath,
+          "--source-type",
+          "ai",
+          "--records-dir",
+          unusableRecordsPath,
+        ],
+        { cwd: process.cwd() },
+      ),
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining("记录目录不可用"),
+    });
+    await expect(access(outputPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 
 export const SOURCE_TYPE_OPTIONS = ["real", "ai"] as const;
@@ -29,6 +30,27 @@ export function sourceTypeFromOption(option: SourceTypeOption): SourceType {
   return option === "real" ? "实拍" : "AI测试素材";
 }
 
+export function recordsDirectoryForOutput(
+  outputImage: string,
+  override?: string,
+): string {
+  return override ?? join(dirname(outputImage), "records");
+}
+
+export async function prepareRecordsDirectory(
+  outputImage: string,
+  override?: string,
+): Promise<string> {
+  const recordsDirectory = recordsDirectoryForOutput(outputImage, override);
+  try {
+    await mkdir(recordsDirectory, { recursive: true });
+    await access(recordsDirectory, constants.W_OK);
+  } catch {
+    throw new Error(`记录目录不可用：${recordsDirectory}`);
+  }
+  return recordsDirectory;
+}
+
 export async function writeGenerationRecord(
   input: WriteGenerationRecordInput,
 ): Promise<string> {
@@ -38,8 +60,10 @@ export async function writeGenerationRecord(
     extname(input.outputImage),
   );
   const safeTimestamp = timestamp.replaceAll(":", "-");
-  const recordsDirectory =
-    input.recordsDirectory ?? join(dirname(input.outputImage), "records");
+  const recordsDirectory = recordsDirectoryForOutput(
+    input.outputImage,
+    input.recordsDirectory,
+  );
   const recordPath = join(
     recordsDirectory,
     `${outputStem}-${safeTimestamp}-${randomUUID().slice(0, 8)}.json`,

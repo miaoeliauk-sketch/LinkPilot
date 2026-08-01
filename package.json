@@ -9,6 +9,7 @@
     "background": "tsx src/background-cli.ts",
     "compose": "tsx src/cli.ts",
     "intensity": "tsx src/intensity-cli.ts",
+    "record": "tsx src/record-cli.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

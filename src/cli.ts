@@ -8,6 +8,7 @@ import {
 } from "./defaults.js";
 import {
   SOURCE_TYPE_OPTIONS,
+  prepareRecordsDirectory,
   sourceTypeFromOption,
   writeGenerationRecord,
   type SourceTypeOption,
@@ -132,6 +133,10 @@ async function loadManifest(manifestPath: string): Promise<DecorationSpec[]> {
 
 export async function runCli(argumentsList = process.argv.slice(2)) {
   const arguments_ = parseArguments(argumentsList);
+  const recordsDirectory = await prepareRecordsDirectory(
+    arguments_.outputPath,
+    arguments_.recordsDirectory,
+  );
   const decorations = arguments_.manifestPath
     ? await loadManifest(arguments_.manifestPath)
     : defaultDecorations();
@@ -153,7 +158,7 @@ export async function runCli(argumentsList = process.argv.slice(2)) {
       跳过数量: result.skipped.length,
     },
     outputImage: arguments_.outputPath,
-    recordsDirectory: arguments_.recordsDirectory,
+    recordsDirectory,
   });
 
   process.stdout.write(

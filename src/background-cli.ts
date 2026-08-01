@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { parseOptionPairs, runCliIfMain } from "./cli-utils.js";
 import {
   SOURCE_TYPE_OPTIONS,
+  prepareRecordsDirectory,
   sourceTypeFromOption,
   writeGenerationRecord,
   type SourceTypeOption,
@@ -51,6 +52,10 @@ function parseArguments(argumentsList: string[]) {
 
 export async function runBackgroundCli(argumentsList = process.argv.slice(2)) {
   const options = parseArguments(argumentsList);
+  const recordsDirectory = await prepareRecordsDirectory(
+    options.outputPath,
+    options.recordsDirectory,
+  );
   const result = await composeBackground(options);
   const recordPath = await writeGenerationRecord({
     inputImage: options.inputPath,
@@ -63,7 +68,7 @@ export async function runBackgroundCli(argumentsList = process.argv.slice(2)) {
       背景预设: options.preset,
     },
     outputImage: options.outputPath,
-    recordsDirectory: options.recordsDirectory,
+    recordsDirectory,
   });
   process.stdout.write(
     `已生成：${options.outputPath}\n记录：${recordPath}\n画布：${result.width}×${result.height}，背景：${result.preset}\n`,

@@ -97,8 +97,7 @@ pnpm intensity -- \
   --source /绝对路径/同一张源图.png \
   --subject "短发人物坐在电脑前，保持身份、姿势和电脑轮廓" \
   --mapping "外套映射为黛蓝，内搭映射为月白" \
-  --output /绝对路径/standard.json \
-  --source-type real
+  --output /绝对路径/standard.json
 ```
 
 把`--level`改为`all`，可以一次生成包含轻度、标准、浓郁3条运行记录的对比计划。3条记录共用同一源图路径，并分别提供运行编号和建议输出文件名。
@@ -107,13 +106,26 @@ pnpm intensity -- \
 
 ## 数据留存
 
-3个命令都会自动写入元数据记录：
+装饰和背景命令会在图片生成成功后自动写入元数据记录：
 
 - `--source-type real`：实拍素材
 - `--source-type ai`：AI测试素材
 - `--records-dir /绝对路径/记录目录`：可选；不填写时，记录保存在输出文件旁的`records`文件夹
 
-记录采用任务书约定的`input_image`、`source_type`、`params`、`output_image`、`timestamp`、`human_review`字段。装饰和背景命令在图片生成成功后写记录；强度命令为每个计划分别写一份“计划待生成”记录，并预留对应的结果图片路径。每次运行使用独立文件名，不会覆盖之前的历史记录。
+记录采用任务书约定的`input_image`、`source_type`、`params`、`output_image`、`timestamp`、`human_review`字段。每次运行使用独立文件名，不会覆盖之前的历史记录。
+
+强度命令只生成计划，不会把尚不存在的图片提前登记成结果。使用计划完成真实AI生成后，再登记实际图片：
+
+```bash
+pnpm record -- \
+  --plan /绝对路径/intensity-comparison.json \
+  --run-id light-1 \
+  --output /绝对路径/实际生成的轻度结果.png \
+  --source-type ai \
+  --model gpt-image-2
+```
+
+只有实际结果图片存在时才会写正式记录。`--run-id`对应计划中的运行编号，例如`light-1`、`standard-1`或`rich-1`。
 
 ## 验证
 
