@@ -25,7 +25,8 @@ pnpm install
 ```bash
 pnpm compose -- \
   --input /绝对路径/主体透明图.png \
-  --output /绝对路径/最终图片.png
+  --output /绝对路径/最终图片.png \
+  --source-type real
 ```
 
 ## 使用自定义装饰配置
@@ -34,7 +35,8 @@ pnpm compose -- \
 pnpm compose -- \
   --input /绝对路径/主体透明图.png \
   --output /绝对路径/最终图片.png \
-  --manifest /绝对路径/decorations.json
+  --manifest /绝对路径/decorations.json \
+  --source-type real
 ```
 
 配置示例：
@@ -69,7 +71,8 @@ pnpm compose -- \
 pnpm background -- \
   --input /绝对路径/带装饰透明图.png \
   --output /绝对路径/方格纸成品.png \
-  --preset grid
+  --preset grid \
+  --source-type real
 ```
 
 `--preset`支持：
@@ -94,12 +97,23 @@ pnpm intensity -- \
   --source /绝对路径/同一张源图.png \
   --subject "短发人物坐在电脑前，保持身份、姿势和电脑轮廓" \
   --mapping "外套映射为黛蓝，内搭映射为月白" \
-  --output /绝对路径/standard.json
+  --output /绝对路径/standard.json \
+  --source-type real
 ```
 
 把`--level`改为`all`，可以一次生成包含轻度、标准、浓郁3条运行记录的对比计划。3条记录共用同一源图路径，并分别提供运行编号和建议输出文件名。
 
 单档JSON包含完整五段式提示词和可移植的装饰素材标识，可用于后续本地生成测试，也可以作为Day 4合成命令的`--manifest`配置。这个命令只生成计划，不会自行调用AI或消耗生成额度。
+
+## 数据留存
+
+3个命令都会自动写入元数据记录：
+
+- `--source-type real`：实拍素材
+- `--source-type ai`：AI测试素材
+- `--records-dir /绝对路径/记录目录`：可选；不填写时，记录保存在输出文件旁的`records`文件夹
+
+记录采用任务书约定的`input_image`、`source_type`、`params`、`output_image`、`timestamp`、`human_review`字段。装饰和背景命令在图片生成成功后写记录；强度命令为每个计划分别写一份“计划待生成”记录，并预留对应的结果图片路径。每次运行使用独立文件名，不会覆盖之前的历史记录。
 
 ## 验证
 

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -14,6 +14,7 @@ describe("InkPilot intensity command", () => {
     const sourcePath = join(directory, "source.png");
     const outputPath = join(directory, "standard.json");
     const composedPath = join(directory, "composed.png");
+    const recordsDirectory = join(directory, "records");
 
     await sharp({
       create: {
@@ -41,6 +42,10 @@ describe("InkPilot intensity command", () => {
         "外套映射为黛蓝，内搭映射为月白",
         "--output",
         outputPath,
+        "--source-type",
+        "real",
+        "--records-dir",
+        recordsDirectory,
       ],
       { cwd: process.cwd() },
     );
@@ -68,6 +73,25 @@ describe("InkPilot intensity command", () => {
       true,
     );
 
+    const recordFiles = await readdir(recordsDirectory);
+    expect(recordFiles).toHaveLength(1);
+    const record = JSON.parse(
+      await readFile(join(recordsDirectory, recordFiles[0]!), "utf8"),
+    );
+    expect(record).toMatchObject({
+      input_image: sourcePath,
+      source_type: "实拍",
+      output_image: join(directory, "source-inkpilot-standard.png"),
+      human_review: "待定",
+      params: {
+        操作: "三档强度生成计划",
+        国风强度: "标准",
+        模型版本: "gpt-image-2",
+        prompt: plan.prompt,
+        记录状态: "计划待生成",
+      },
+    });
+
     await execFileAsync(
       "pnpm",
       [
@@ -79,6 +103,8 @@ describe("InkPilot intensity command", () => {
         composedPath,
         "--manifest",
         outputPath,
+        "--source-type",
+        "real",
       ],
       { cwd: process.cwd() },
     );
@@ -106,6 +132,8 @@ describe("InkPilot intensity command", () => {
         "外套映射为黛蓝，内搭映射为月白",
         "--output",
         outputPath,
+        "--source-type",
+        "ai",
       ],
       { cwd: process.cwd() },
     );
@@ -126,5 +154,22 @@ describe("InkPilot intensity command", () => {
     expect(
       comparison.runs.every((run) => run.sourceImage === sourcePath),
     ).toBe(true);
+
+    const recordFiles = await readdir(join(directory, "records"));
+    expect(recordFiles).toHaveLength(3);
+    const records = await Promise.all(
+      recordFiles.map(async (file) =>
+        JSON.parse(await readFile(join(directory, "records", file), "utf8")),
+      ),
+    );
+    expect(records.map((record) => record.params.国风强度).sort()).toEqual([
+      "标准",
+      "浓郁",
+      "轻度",
+    ]);
+    expect(
+      records.every((record) => record.source_type === "AI测试素材"),
+    ).toBe(true);
+    expect(new Set(records.map((record) => record.output_image)).size).toBe(3);
   });
 });

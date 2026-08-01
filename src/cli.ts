@@ -7,6 +7,12 @@ import {
   defaultDecorations,
 } from "./defaults.js";
 import {
+  SOURCE_TYPE_OPTIONS,
+  sourceTypeFromOption,
+  writeGenerationRecord,
+  type SourceTypeOption,
+} from "./metadata.js";
+import {
   ANCHORS,
   DECORATION_ASSET_IDS,
   type DecorationAssetId,
@@ -17,6 +23,8 @@ interface CliArguments {
   inputPath: string;
   outputPath: string;
   manifestPath?: string;
+  sourceType: SourceTypeOption;
+  recordsDirectory?: string;
 }
 
 function usage() {
@@ -24,6 +32,7 @@ function usage() {
     "用法：",
     "  pnpm compose -- --input <透明PNG> --output <输出PNG>",
     "  pnpm compose -- --input <透明PNG> --output <输出PNG> --manifest <配置JSON>",
+    "必填：--source-type <real|ai>；可选：--records-dir <记录目录>",
   ].join("\n");
 }
 
@@ -32,7 +41,13 @@ function parseArguments(argumentsList: string[]): CliArguments {
 
   const inputPath = values.get("--input");
   const outputPath = values.get("--output");
-  if (!inputPath || !outputPath) {
+  const sourceType = values.get("--source-type");
+  if (
+    !inputPath ||
+    !outputPath ||
+    !sourceType ||
+    !SOURCE_TYPE_OPTIONS.includes(sourceType as SourceTypeOption)
+  ) {
     throw new Error(usage());
   }
 
@@ -41,6 +56,10 @@ function parseArguments(argumentsList: string[]): CliArguments {
     outputPath: resolve(outputPath),
     manifestPath: values.get("--manifest")
       ? resolve(values.get("--manifest")!)
+      : undefined,
+    sourceType: sourceType as SourceTypeOption,
+    recordsDirectory: values.get("--records-dir")
+      ? resolve(values.get("--records-dir")!)
       : undefined,
   };
 }
@@ -122,9 +141,23 @@ export async function runCli(argumentsList = process.argv.slice(2)) {
     outputPath: arguments_.outputPath,
     decorations,
   });
+  const recordPath = await writeGenerationRecord({
+    inputImage: arguments_.inputPath,
+    sourceType: sourceTypeFromOption(arguments_.sourceType),
+    params: {
+      操作: "装饰合成",
+      国风强度: "未指定",
+      模型版本: "sharp",
+      prompt: "",
+      装饰数量: result.placements.length,
+      跳过数量: result.skipped.length,
+    },
+    outputImage: arguments_.outputPath,
+    recordsDirectory: arguments_.recordsDirectory,
+  });
 
   process.stdout.write(
-    `已生成：${arguments_.outputPath}\n画布：${result.width}×${result.height}，装饰：${result.placements.length}个，跳过：${result.skipped.length}个\n`,
+    `已生成：${arguments_.outputPath}\n记录：${recordPath}\n画布：${result.width}×${result.height}，装饰：${result.placements.length}个，跳过：${result.skipped.length}个\n`,
   );
 }
 
