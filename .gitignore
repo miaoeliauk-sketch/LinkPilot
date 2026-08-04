@@ -3,3 +3,9 @@ dist/
 coverage/
 tmp/
 *.log
+
+# V0.2 本地测试素材（真人照片、参考蒙版、抠图/生成结果等），不进入公开仓库
+# 目录结构见 V0.2-素材蒙版与授权检查规范.md 第九节
+/local-assets/
+/local-assets/**
+*.local.png
