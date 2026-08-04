@@ -1,7 +1,8 @@
+import { stat } from "node:fs/promises";
+import sharp from "sharp";
 import type { MaskVersion } from "./types.js";
 
 /**
- * 骨架，未在本环境实际运行验证（本环境未安装 sharp 等项目依赖）。
  * 命名规则见《V0.2-素材蒙版与授权检查规范.md》，形如：HAIR-01-core-v1.png / HAIR-01-detail-v2.png
  */
 const MASK_FILENAME_PATTERN = /^(?<materialId>[A-Z]+-\d+)-(?<regionType>core|detail)-v(?<version>\d+)\.png$/;
@@ -32,22 +33,34 @@ export function toMaskVersion(filePath: string): MaskVersion {
 }
 
 /**
- * TODO（骨架，未实现/未验证）：用 sharp 读取PNG为单通道灰度Uint8Array。
- * 读取后需要校验：
- *   1. 通道数可归约为单通道（灰度或RGBA的alpha/亮度一致）；
- *   2. 每个像素值只能是0或255（否则 metrics.ts 的 assertBinaryMask 会抛错，这里可以提前校验给出更早的错误定位）；
- *   3. 尺寸与被测抠图结果图一致。
- * 建议实现：
- *   const { data, info } = await sharp(path).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
- *   // 蒙版通常是单通道灰度导出，若sharp读到的是RGBA，取R通道或alpha通道，具体取哪个通道
- *   // 取决于标注工具实际导出格式，需要在真实素材到手后确认，此处不预先假设。
+ * 读取蒙版为单通道灰度像素数组。蒙版命名和二值合法性（是否只含0/255）由调用方
+ * （metrics.ts 的 assertBinaryMask）校验，本函数只负责"能不能读到像素"这一层。
+ * 用 sharp 的 greyscale() 统一处理蒙版可能被导出为RGB/RGBA/已是灰度这几种情况，
+ * 而不是假设标注工具一定导出严格单通道文件。
  */
-export async function readMaskPixels(_path: string): Promise<{
+export async function readMaskPixels(path: string): Promise<{
   data: Uint8Array;
   width: number;
   height: number;
 }> {
-  throw new Error(
-    "readMaskPixels 尚未实现：需要在装有sharp依赖的实际开发环境中，根据标注工具实际导出的蒙版通道格式补全，本次未验证具体导出格式。",
-  );
+  try {
+    await stat(path);
+  } catch {
+    throw new Error(`蒙版文件不存在：${path}`);
+  }
+
+  const { data, info } = await sharp(path)
+    .greyscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`蒙版文件无法解码（可能已损坏或不是有效图片格式）：${path}（${message}）`);
+    });
+
+  if (info.channels !== 1) {
+    throw new Error(`蒙版灰度化后通道数应为1，实际为${info.channels}：${path}`);
+  }
+
+  return { data: new Uint8Array(data), width: info.width, height: info.height };
 }

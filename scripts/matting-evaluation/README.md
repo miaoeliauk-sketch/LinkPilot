@@ -9,10 +9,15 @@
 - 不 import、不修改 `src/composite.ts`、`src/background.ts`、`src/intensity.ts`、`src/metadata.ts` 或其他正式 pipeline 文件。
 - 产出的数字仍需人工填入《V0.2-智能抠图测试设计表.md》，本工具不自动下"转正/保留/排除"结论。
 
-**当前状态：骨架代码，尚未在真实素材上运行验证。**
+**当前状态：I/O 部分已完成最小样例验证（合成夹具，非真实素材）。**
 
-- `types.ts`、`alpha-classify.ts`、`metrics.ts`：纯函数，不依赖文件系统或图像库，理论上可独立单元测试（尚未编写测试，尚未实际运行）。
-- `mask-io.ts`、`env-snapshot.ts`、`report.ts`、`cli.ts`：涉及文件读写和 `sharp` 图像解码的骨架，接口已定义，具体实现标注了 `TODO`，需要在装有 `sharp` 依赖的实际开发环境中补全并验证，本次未在此环境中运行测试（本环境未安装项目依赖）。
+- 验证方式：在装有项目依赖（`sharp`/`vitest`/`tsx`，与远程仓库`6d13103`版本一致）的隔离环境中，用程序合成的最小PNG（4×4、8×8像素，纯色/棋盘格图案，不含任何真人或真实项目素材）实际跑通了"读取抠图结果图 + 读取核心/细节蒙版 → 计算 → 输出JSON/Markdown"全流程，含CLI子进程真实退出码检查。测试文件：`matting-evaluation.test.ts`，23个测试用例全部通过（过程中发现并修复了1个真实bug：`mask-io.ts`的`readMaskPixels`此前是未实现的占位）。
+- **仍未验证的部分**：真实标注工具导出的蒙版格式是否与`greyscale()`的假设一致（例如标注工具是否会导出非纯黑白的抗锯齿边缘，即使声称是"二值"）；1024×1024量级真实素材上的实际运行耗时（`metrics.ts`的`dilateMask`是简单的O(width×height×radius²)实现，代码注释已标注为已知优化空间，未在大尺寸图上测过实际耗时）；真实智能抠图工具的输出格式是否符合本工具假设的RGBA约定。这些需要在拿到真实素材后，作为任务卡3执行时的首批样例来验证，不能靠合成夹具替代。
+- 测试运行方式（`vitest.config.ts`默认只扫描`tests/**/*.test.ts`，未包含本目录，需要显式指定）：
+  ```bash
+  npx vitest run scripts/matting-evaluation/matting-evaluation.test.ts --config <临时或扩展后的vitest配置>
+  ```
+  是否要把`vitest.config.ts`的`include`范围扩展到本目录、从而让本目录测试自动纳入`pnpm test`，是一个待决定事项，本次未修改根配置文件（保持改动范围仅限`scripts/matting-evaluation/`）。
 
 ## 目录
 

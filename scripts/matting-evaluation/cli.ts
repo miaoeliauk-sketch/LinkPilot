@@ -1,3 +1,5 @@
+import { stat } from "node:fs/promises";
+import sharp from "sharp";
 import {
   assertRatiosSumTo100,
   coreRetentionRate,
@@ -15,11 +17,10 @@ import { DEFAULT_ALPHA_THRESHOLDS } from "./types.js";
 import type { EvaluationResult } from "./types.js";
 
 /**
- * 骨架命令行入口，未在本环境实际运行验证。
- * 不依赖 src/ 下任何模块，独立于正式pipeline。
+ * 命令行入口。不依赖 src/ 下任何模块，独立于正式pipeline。
  * 不生成图片，不调用Codex，只读取已有文件。
  *
- * 用法（设计意图）：
+ * 用法：
  *   tsx scripts/matting-evaluation/cli.ts \
  *     --output <抠图结果PNG> --core-mask <核心蒙版PNG> --detail-mask <细节蒙版PNG> \
  *     --material-id HAIR-01 --route ai-matting --run-index 1
@@ -48,17 +49,46 @@ function parseArgs(argv: string[]): Record<string, string> {
 }
 
 async function readOutputAlphaChannel(
-  _path: string,
+  path: string,
 ): Promise<{ alpha: Uint8Array; width: number; height: number }> {
-  // TODO（骨架，未实现/未验证）：用 sharp 读取RGBA并提取alpha通道。
-  // const { data, info } = await sharp(_path).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  // if (info.channels !== 4) throw new Error(`输入图片必须能转换为RGBA格式：${_path}`);
-  // const alpha = new Uint8Array(info.width * info.height);
-  // for (let i = 0; i < alpha.length; i += 1) alpha[i] = data[i * 4 + 3];
-  // return { alpha, width: info.width, height: info.height };
-  throw new Error(
-    "readOutputAlphaChannel 尚未实现：需要在装有sharp依赖的实际开发环境中补全，本次未验证。",
-  );
+  try {
+    await stat(path);
+  } catch {
+    throw new Error(`抠图结果图不存在：${path}`);
+  }
+
+  const { data, info } = await sharp(path)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`抠图结果图无法解码（可能已损坏或不是有效图片格式）：${path}（${message}）`);
+    });
+
+  if (info.channels !== 4) {
+    throw new Error(`输入图片必须能转换为RGBA格式，实际通道数为${info.channels}：${path}`);
+  }
+
+  const alpha = new Uint8Array(info.width * info.height);
+  for (let i = 0; i < alpha.length; i += 1) {
+    alpha[i] = data[i * 4 + 3];
+  }
+  return { alpha, width: info.width, height: info.height };
+}
+
+function assertSameDimensions(
+  a: { width: number; height: number },
+  b: { width: number; height: number },
+  labelA: string,
+  labelB: string,
+): void {
+  if (a.width !== b.width || a.height !== b.height) {
+    throw new Error(
+      `${labelA}尺寸(${a.width}×${a.height})与${labelB}尺寸(${b.width}×${b.height})不一致，` +
+        `不能仅凭像素总数相同就判定尺寸一致（例如10×20与20×10总数相同但排列不同）`,
+    );
+  }
 }
 
 async function main(): Promise<void> {
@@ -84,6 +114,9 @@ async function main(): Promise<void> {
   const { alpha, width, height } = await readOutputAlphaChannel(args.output);
   const coreMask = await readMaskPixels(args["core-mask"]);
   const detailMask = await readMaskPixels(args["detail-mask"]);
+
+  assertSameDimensions({ width, height }, coreMask, "抠图结果图", "核心区域蒙版");
+  assertSameDimensions({ width, height }, detailMask, "抠图结果图", "细节区域蒙版");
 
   const coreCounts = countRegionBands(coreMask.data, alpha, thresholds, "核心区域蒙版");
   const detailCounts = countRegionBands(detailMask.data, alpha, thresholds, "细节区域蒙版");
