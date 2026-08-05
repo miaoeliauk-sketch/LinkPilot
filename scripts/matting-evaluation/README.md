@@ -22,13 +22,29 @@
 ## 目录
 
 ```
-types.ts            类型定义
-alpha-classify.ts    alpha三档判定
-metrics.ts            核心/细节保留率、半透明占比、丢失率、误抠面积计算
-mask-io.ts             参考蒙版读取、版本号解析（骨架）
-env-snapshot.ts        运行环境信息采集（骨架）
-report.ts               输出JSON + Markdown摘要（骨架）
-cli.ts                   命令行入口（骨架）
+types.ts                        类型定义
+alpha-classify.ts                alpha三档判定
+metrics.ts                        核心/细节保留率、半透明占比、丢失率、误抠面积计算
+mask-io.ts                         参考蒙版读取、版本号解析
+env-snapshot.ts                    运行环境信息采集
+report.ts                           输出JSON + Markdown摘要
+cli.ts                               评价工具命令行入口（比较抠图结果 vs 已冻结的参考蒙版）
+generate-reference-mask.ts           参考蒙版"自动初判"生成工具（新增）
+generate-reference-mask.test.ts      对应测试（16个用例，合成夹具，含孔洞场景）
+```
+
+### generate-reference-mask.ts：参考蒙版自动初判工具
+
+对应《V0.2-智能抠图测试设计表.md》第四节"算法辅助标注"路径：对纯色度键背景的源图，按色度距离把像素分三档（高置信背景/高置信前景/模糊待复核），模糊区域集中在发丝末梢、叶尖这类边缘，**不自动下判断，只标记出来**；核心蒙版=高置信前景腐蚀后的内部实体，细节蒙版=边缘带∪模糊区域。
+
+产出的是`-draft`后缀的草稿蒙版+`review-overlay`复核叠加图（模糊像素标红）+生成报告（含模糊像素占比）。**必须人工核对review-overlay、确认或修正模糊区域的默认归类后，才能按素材蒙版规范重新命名去掉`-draft`、加正式版本号并冻结**，不能把草稿直接当正式蒙版用。
+
+已用合成夹具验证（16个测试用例全部通过，含专门验证内部孔洞——如镂空叶片——不会被误判为主体的场景），未在真实生成图上验证过阈值是否合适。
+
+```bash
+tsx scripts/matting-evaluation/generate-reference-mask.ts \
+  --source <源PNG，纯色度键背景> --chroma <green|magenta|#RRGGBB> \
+  --material-id HAIR-01 --out-dir <输出目录>
 ```
 
 ## 使用方式（设计意图，尚未验证）
