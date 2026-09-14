@@ -115,6 +115,31 @@ class TranscriptGUI:
             width=10, state="readonly",
         ).grid(row=0, column=3, sticky="w", padx=(0, 20))
 
+        cookies_file_frame = tk.Frame(self.root)
+        cookies_file_frame.pack(fill="x", **pad)
+        tk.Label(
+            cookies_file_frame,
+            text="Cookies 文件（可选，填了就优先用这个，不用上面自动读浏览器的方式）：",
+        ).pack(anchor="w")
+        cookies_file_row = tk.Frame(cookies_file_frame)
+        cookies_file_row.pack(fill="x", pady=(2, 0))
+        self.cookies_file_var = tk.StringVar(value="")
+        tk.Entry(cookies_file_row, textvariable=self.cookies_file_var, width=60).pack(
+            side="left", padx=(0, 4)
+        )
+        tk.Button(cookies_file_row, text="选择...", command=self._choose_cookies_file).pack(side="left")
+        tk.Button(cookies_file_row, text="清除", command=lambda: self.cookies_file_var.set("")).pack(
+            side="left", padx=(4, 0)
+        )
+        tk.Label(
+            cookies_file_frame,
+            text="自动读浏览器 Cookies 在部分电脑上会因为权限/加密问题读不到，如果一直报\n"
+                 "\"Fresh cookies... are needed\"，可以装个浏览器扩展（比如 Get cookies.txt LOCALLY）\n"
+                 "登录抖音后导出一份 cookies.txt，这里选中它就行。",
+            fg="#888",
+            justify="left",
+        ).pack(anchor="w", pady=(2, 0))
+
         # 装转写模式专属选项的固定容器：位置一直不变，切换模式时只换里面的内容，
         # 不会因为 pack_forget/pack 的先后顺序导致整个界面跳来跳去
         self.dynamic_options_frame = tk.Frame(self.root)
@@ -206,6 +231,14 @@ class TranscriptGUI:
         chosen = filedialog.askdirectory()
         if chosen:
             self.output_dir_var.set(chosen)
+
+    def _choose_cookies_file(self):
+        chosen = filedialog.askopenfilename(
+            title="选择 cookies.txt 文件",
+            filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")],
+        )
+        if chosen:
+            self.cookies_file_var.set(chosen)
 
     def _on_stop_clicked(self):
         if not self.is_running:
@@ -331,6 +364,9 @@ class TranscriptGUI:
 
         cookies_from_browser = self.cookies_var.get()
         if cookies_from_browser == "无":
+            cookies_from_browser = ""
+        # 填了 cookies 文件的话优先用这个，不再同时让 yt-dlp 去自动读浏览器（避免两边冲突）
+        if self.cookies_file_var.get().strip():
             cookies_from_browser = ""
 
         if self.excel_paths:
@@ -474,6 +510,7 @@ class TranscriptGUI:
             try:
                 audio_path, video_id, _title, thumbnail_url, video_path = core.download_audio(
                     link, tmp_dir, cookies_from_browser=cookies_from_browser,
+                    cookies_file=self.cookies_file_var.get().strip(),
                     keep_video_dir=output_dir if self.keep_video_var.get() else None,
                 )
                 text, segments = core.transcribe_dispatch(audio_path, mode, transcribe_args)
@@ -535,7 +572,10 @@ class TranscriptGUI:
         expanded_links = []
         for link in links:
             try:
-                found = core.expand_link_to_videos(link, cookies_from_browser=cookies_from_browser)
+                found = core.expand_link_to_videos(
+                    link, cookies_from_browser=cookies_from_browser,
+                    cookies_file=self.cookies_file_var.get().strip(),
+                )
             except Exception as exc:  # noqa: BLE001
                 self._log(f"展开主页/合集失败，按单个视频处理：{link} -> {exc}")
                 found = [link]
@@ -558,6 +598,7 @@ class TranscriptGUI:
             try:
                 audio_path, video_id, title, thumbnail_url, video_path = core.download_audio(
                     link, output_dir, cookies_from_browser=cookies_from_browser,
+                    cookies_file=self.cookies_file_var.get().strip(),
                     keep_video_dir=output_dir if self.keep_video_var.get() else None,
                 )
                 result.video_id = video_id
