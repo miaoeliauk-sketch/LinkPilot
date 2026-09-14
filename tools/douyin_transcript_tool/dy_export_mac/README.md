@@ -60,11 +60,16 @@
 说明你用的是旧版 `install.command`，换成新的再跑一次。
 
 **报错说缺少 `tkinter`**
-你的 Python 没带图形界面模块，在终端里运行：
+Homebrew 装的 Python 默认不带图形界面模块。脚本会告诉你**对得上版本号**的命令，
+比如 Python 3.12 就是：
 ```
-brew install python-tk
+brew install python-tk@3.12
 ```
-然后重新双击 `install.command`。
+装完重新双击 `install.command` 即可。
+（注意：不带版本号的 `brew install python-tk` 装的可能是另一个 Python 版本的，对不上号就没用。）
+
+也可以改用[官网的 Python](https://www.python.org/downloads/)，它自带图形界面模块，
+装完脚本会自动优先选它。
 
 **「一条作品都没抓到」**
 登录过期了，点「重新扫码登录」重新扫一次。

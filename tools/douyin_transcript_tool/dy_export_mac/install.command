@@ -7,31 +7,52 @@ echo "  扒抖音作品 - 安装依赖"
 echo "===================================="
 echo ""
 
+CANDIDATES="python3.13 python3.12 python3.11 python3.10 python3 \
+/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 \
+/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 \
+/Library/Frameworks/Python.framework/Versions/3.11/bin/python3 \
+/usr/bin/python3"
+
+# 优先挑一个「自带图形界面模块 tkinter」的 Python
 PY=""
-for c in python3.12 python3.11 python3.10 python3; do
-  if command -v "$c" >/dev/null 2>&1; then PY="$c"; break; fi
+FALLBACK=""
+for c in $CANDIDATES; do
+  command -v "$c" >/dev/null 2>&1 || continue
+  [ -n "$FALLBACK" ] || FALLBACK="$c"
+  if "$c" -c "import tkinter" >/dev/null 2>&1; then PY="$c"; break; fi
 done
 
-if [ -z "$PY" ]; then
-  echo "❌ 没找到 Python 3。请先安装：https://www.python.org/downloads/"
+if [ -z "$PY" ] && [ -z "$FALLBACK" ]; then
+  echo "❌ 没找到 Python 3。请到这里下载安装（选 macOS 64-bit installer）："
+  echo "   https://www.python.org/downloads/"
   echo ""
   read -r -p "按回车键关闭窗口..."
   exit 1
 fi
 
-echo "使用 Python: $($PY --version)"
-
-# 检查 tkinter（图形界面必需，Homebrew 的 python 默认不带）
-if ! "$PY" -c "import tkinter" >/dev/null 2>&1; then
+if [ -z "$PY" ]; then
+  # 找到了 Python，但都不带 tkinter。给出对得上版本号的安装命令
+  VER=$("$FALLBACK" -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null)
   echo ""
-  echo "⚠️  这个 Python 缺少图形界面模块 tkinter。"
-  echo "    请在终端里运行下面这行装上，然后再双击我一次："
+  echo "⚠️  你的 Python $VER 缺少图形界面模块 tkinter（Homebrew 版默认不带）。"
   echo ""
+  echo "    两个办法，任选一个："
+  echo ""
+  echo "    办法 A（推荐，快）：终端里运行"
+  echo "        brew install python-tk@$VER"
+  echo "      如果提示找不到这个包，就试不带版本号的："
   echo "        brew install python-tk"
   echo ""
+  echo "    办法 B：去官网装一个自带图形界面的 Python"
+  echo "        https://www.python.org/downloads/"
+  echo ""
+  echo "    弄好以后，再双击我一次就行。"
+  echo ""
   read -r -p "按回车键关闭窗口..."
   exit 1
 fi
+
+echo "使用 Python: $($PY --version)  ($PY)"
 
 # 建独立虚拟环境，避免 macOS 的 PEP 668「externally-managed-environment」报错
 echo ""
