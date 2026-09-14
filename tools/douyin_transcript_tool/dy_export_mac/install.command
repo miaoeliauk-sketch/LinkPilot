@@ -20,17 +20,53 @@ if [ -z "$PY" ]; then
 fi
 
 echo "使用 Python: $($PY --version)"
+
+# 检查 tkinter（图形界面必需，Homebrew 的 python 默认不带）
+if ! "$PY" -c "import tkinter" >/dev/null 2>&1; then
+  echo ""
+  echo "⚠️  这个 Python 缺少图形界面模块 tkinter。"
+  echo "    请在终端里运行下面这行装上，然后再双击我一次："
+  echo ""
+  echo "        brew install python-tk"
+  echo ""
+  read -r -p "按回车键关闭窗口..."
+  exit 1
+fi
+
+# 建独立虚拟环境，避免 macOS 的 PEP 668「externally-managed-environment」报错
+echo ""
+echo "正在创建独立运行环境 .venv ..."
+if [ ! -d ".venv" ]; then
+  "$PY" -m venv .venv || {
+    echo "❌ 创建虚拟环境失败。"
+    read -r -p "按回车键关闭窗口..."
+    exit 1
+  }
+fi
+
+VPY=".venv/bin/python"
+
 echo ""
 echo "正在安装依赖，请稍候（第一次大约 1~3 分钟）..."
 echo ""
 
-"$PY" -m pip install --upgrade pip
-"$PY" -m pip install -r requirements.txt || {
+"$VPY" -m pip install --upgrade pip
+"$VPY" -m pip install -r requirements.txt || {
   echo ""
   echo "❌ 依赖安装失败，请把上面的红色报错截图发给我。"
   read -r -p "按回车键关闭窗口..."
   exit 1
 }
+
+# 扫码登录用的浏览器。有系统 Chrome 就直接用，没有才下载 Chromium
+echo ""
+if [ -d "/Applications/Google Chrome.app" ]; then
+  echo "✅ 检测到系统 Chrome，扫码登录会直接用它。"
+else
+  echo "没检测到 Chrome，正在下载扫码登录用的浏览器（约 150MB）..."
+  "$VPY" -m playwright install chromium || \
+    echo "⚠️  浏览器下载失败。装个 Google Chrome 也可以，不影响其它功能。"
+fi
 
 echo ""
 echo "✅ 安装完成！"

@@ -4,3 +4,5 @@ dy_export_mac/cookie.txt
 dy_export_mac/cookie.json
 dy_export_mac/browser_profile/
 dy_export_mac/输出/
+
+.venv/

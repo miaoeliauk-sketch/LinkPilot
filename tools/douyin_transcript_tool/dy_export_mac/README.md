@@ -12,6 +12,7 @@
 1. 把整个 `dy_export_mac` 文件夹拖到你想放的地方
    （**路径里不要有中文**，否则某些第三方终端会报"no such file or directory"）
 2. 双击 **`install.command`** → 自动装依赖，等它显示"✅ 安装完成"
+   （会在文件夹里建一个 `.venv` 独立环境，不会动你系统里的 Python）
 3. 双击 **`start_gui.command`** → 打开程序窗口
 4. 点 **「重新扫码登录」** → 会弹出 Chrome → 用手机抖音扫码登录
    → 登录成功后会自动生成 `cookie.txt`，窗口自己关掉
@@ -41,7 +42,7 @@
 | `os.startfile()` 打开文件/文件夹 | 换成跨平台的 `open`（Mac）/ `xdg-open`（Linux） |
 | Playwright 固定用 `channel="msedge"` | 优先用系统的 Chrome，失败依次退回 Edge、Playwright 自带 Chromium |
 | 字体 `Microsoft YaHei` / `Consolas` | 换成 `PingFang SC` / `Menlo`，字号整体 +2 |
-| `.bat` 启动器 + 打包的 `runtime\python.exe` | `.command` 启动器 + 自动找系统 Python3 |
+| `.bat` 启动器 + 打包的 `runtime\python.exe` | `.command` 启动器 + 自建 `.venv` 独立环境 |
 | 抓取失败只写在日志里 | 额外弹窗提示 |
 
 `dy_export.py` 和 `signer.py` 的抓取逻辑**没动**，和原版完全一样。
@@ -53,6 +54,17 @@
 ---
 
 ## 四、常见问题
+
+**装依赖时报 `externally-managed-environment`**
+新版脚本已经用 `.venv` 独立环境绕开了这个问题。如果你还看到这个报错，
+说明你用的是旧版 `install.command`，换成新的再跑一次。
+
+**报错说缺少 `tkinter`**
+你的 Python 没带图形界面模块，在终端里运行：
+```
+brew install python-tk
+```
+然后重新双击 `install.command`。
 
 **「一条作品都没抓到」**
 登录过期了，点「重新扫码登录」重新扫一次。
