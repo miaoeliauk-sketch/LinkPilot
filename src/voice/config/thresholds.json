@@ -1,0 +1,8 @@
+{
+  "version": "thresholds-v0-uncalibrated",
+  "note": "全部是待校准值。Day 2 跑完 40 篇校准集后统一修订，修订时必须同时改 version。",
+  "averageSentenceLength": 22,
+  "maxSentenceLength": 35,
+  "maxParallelClauseChars": 10,
+  "minParallelClauseRun": 3
+}

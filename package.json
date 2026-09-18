@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "background": "tsx src/background-cli.ts",
     "build": "tsc -p tsconfig.build.json",
     "build:assets": "tsx scripts/generate-assets.ts",
-    "background": "tsx src/background-cli.ts",
     "compose": "tsx src/cli.ts",
+    "diagnose": "tsx src/voice/cli.ts",
     "intensity": "tsx src/intensity-cli.ts",
     "record": "tsx src/record-cli.ts",
     "test": "vitest run",
