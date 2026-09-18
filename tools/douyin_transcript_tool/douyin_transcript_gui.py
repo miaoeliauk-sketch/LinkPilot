@@ -467,6 +467,21 @@ class TranscriptGUI:
             self._log(f"表格里找不到\"作品网址\"列，实际的列名有：{header}")
             return
 
+        # "视频源网址"是视频文件本身的地址，能绕开 yt-dlp 抖音解析器长期报
+        # "Fresh cookies ... are needed" 的问题，所以有这一列就优先用它，
+        # 哪一行是空的再退回用该行的"作品网址"。
+        media_col = excel_core.find_column_index(header, "视频源网址")
+        if media_col is not None:
+            self._log("表格里有\"视频源网址\"列，优先用它下载（可绕开抖音的 cookies 报错）。")
+
+        def _row_link(row_idx):
+            if media_col is not None:
+                value = ws.cell(row=row_idx, column=media_col).value
+                if value and str(value).strip():
+                    return str(value).strip()
+            value = ws.cell(row=row_idx, column=link_col).value
+            return str(value).strip() if value else ""
+
         status_col = excel_core.find_column_index(header, "是否已经语音转写文案")
         if status_col is None:
             status_col = len(header) + 1
@@ -483,8 +498,7 @@ class TranscriptGUI:
 
         pending_rows = []
         for row_idx in range(2, ws.max_row + 1):
-            link = ws.cell(row=row_idx, column=link_col).value
-            if not link or not str(link).strip():
+            if not _row_link(row_idx):
                 continue
             if excel_core._is_marked_done(ws.cell(row=row_idx, column=status_col).value):
                 continue
@@ -504,7 +518,7 @@ class TranscriptGUI:
                 stopped_early = True
                 self._log("已停止，之前处理好的部分都已经保存在 Excel 里了。")
                 break
-            link = str(ws.cell(row=row_idx, column=link_col).value).strip()
+            link = _row_link(row_idx)
             self._log(f"[{idx}/{len(pending_rows)}] 第 {row_idx} 行，开始处理：{link}")
             audio_path = None
             try:
