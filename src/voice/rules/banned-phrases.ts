@@ -42,6 +42,7 @@ export function detectBannedPhrases(
     hits.push({
       rule: "banned-phrase",
       category: entry.category,
+      match: match[0],
       detail:
         match[0] === entry.phrase
           ? `指纹词「${entry.phrase}」`

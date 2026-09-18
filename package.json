@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "app": "pnpm app:build && electron dist-app/app/main.js",
+    "app:build": "tsc -p tsconfig.app.json && tsx scripts/copy-app-assets.ts",
+    "app:dist": "pnpm app:build && electron-builder --mac",
+    "app:smoke": "pnpm app:build && electron scripts/app-smoke.mjs",
     "background": "tsx src/background-cli.ts",
     "build": "tsc -p tsconfig.build.json",
     "build:assets": "tsx scripts/generate-assets.ts",
@@ -19,8 +23,11 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
+    "electron": "^44.4.2",
+    "electron-builder": "^26.15.3",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
-  }
+  },
+  "main": "dist-app/app/main.js"
 }

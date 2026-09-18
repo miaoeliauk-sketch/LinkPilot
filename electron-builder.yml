@@ -1,0 +1,14 @@
+appId: dev.voicepilot.app
+productName: VoicePilot
+directories:
+  output: release
+files:
+  - dist-app/**/*
+  - package.json
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64

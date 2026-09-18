@@ -18,6 +18,8 @@ export interface SentenceHit {
   detail: string;
   /** 指纹词命中时记录所属分类，其余规则为空 */
   category?: string;
+  /** 在句中实际命中的原文片段，界面按它做字级高亮；只有指纹词规则会给 */
+  match?: string;
 }
 
 export interface SentenceResult extends Sentence {

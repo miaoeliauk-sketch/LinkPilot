@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'" />
+    <title>口播体检</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="titlebar">
+      <h1 class="titlebar__title">口播体检</h1>
+      <div class="titlebar__meta">
+        <span class="badge" id="config-badge" title="当前词表与阈值版本">未加载</span>
+        <button class="button button--ghost" id="reveal-config" type="button">词表文件夹</button>
+      </div>
+    </header>
+
+    <main class="stage" id="stage" data-view="edit">
+      <section class="editor" id="editor">
+        <textarea
+          class="editor__input"
+          id="script-input"
+          spellcheck="false"
+          placeholder="把口播稿贴进来。&#10;&#10;体检的是「听起来像不像人说话」，不是「这段是不是 AI 写的」。"
+        ></textarea>
+        <footer class="editor__bar">
+          <span class="hint" id="char-hint">0 字</span>
+          <button class="button button--primary" id="run" type="button">
+            体检<kbd class="kbd" id="run-shortcut">⌘↩</kbd>
+          </button>
+        </footer>
+      </section>
+
+      <section class="report" id="report" hidden>
+        <div class="panel panel--source">
+          <div class="panel__head">
+            <h2 class="panel__title">原文</h2>
+            <button class="button button--ghost" id="back" type="button">重新编辑</button>
+          </div>
+          <div class="source" id="source"></div>
+        </div>
+
+        <div class="panel panel--side">
+          <div class="metrics" id="metrics"></div>
+          <div class="side-scroll">
+            <div class="warnings" id="warnings"></div>
+            <div class="hits" id="hits"></div>
+          </div>
+          <p class="disclaimer">
+            这是 L1 规则层的指标和命中，不是最终结论。三档标注（AI味／存疑／通过）要等两层合并策略完成。
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./renderer.js"></script>
+  </body>
+</html>

@@ -1,0 +1,533 @@
+/*
+ * 动效遵循 Emil Kowalski 的 design engineering 规范：
+ * 自定义缓动曲线、UI 动画一律 300ms 以内、只动 transform 和 opacity、
+ * 入场不从 scale(0) 开始、按压给 scale(0.97) 反馈、不写 transition: all。
+ */
+
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-sunken: #f2f2ef;
+  --text: #18181b;
+  --text-muted: #71716b;
+  --text-faint: #a3a39b;
+  --border: rgba(24, 24, 27, 0.08);
+  --accent: #18181b;
+  --accent-text: #ffffff;
+
+  --shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.05), 0 1px 1px rgba(24, 24, 27, 0.04);
+  --shadow-md: 0 6px 20px rgba(24, 24, 27, 0.07), 0 1px 2px rgba(24, 24, 27, 0.05);
+
+  --hit-phrase: #a1620a;
+  --hit-phrase-wash: rgba(217, 141, 20, 0.18);
+  --hit-parallel: #6d31c4;
+  --hit-parallel-wash: rgba(124, 58, 237, 0.15);
+  --hit-long: #0b6291;
+  --hit-long-wash: rgba(14, 130, 190, 0.15);
+
+  --radius: 10px;
+  --radius-lg: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413;
+    --surface: #1d1d1b;
+    --surface-sunken: #191917;
+    --text: #f2f2ef;
+    --text-muted: #9a9a92;
+    --text-faint: #6e6e66;
+    --border: rgba(255, 255, 255, 0.09);
+    --accent: #f2f2ef;
+    --accent-text: #18181b;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
+
+    --hit-phrase: #e8b563;
+    --hit-phrase-wash: rgba(217, 141, 20, 0.24);
+    --hit-parallel: #bb9bf0;
+    --hit-parallel-wash: rgba(139, 92, 246, 0.24);
+    --hit-long: #74c0ec;
+    --hit-long-wash: rgba(14, 165, 233, 0.22);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- 标题栏 ---------- */
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: none;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  -webkit-app-region: drag;
+}
+
+/* 只有 macOS 需要给左上角红绿灯让位，别的平台留这段空白就是排版事故 */
+body[data-platform="darwin"] .titlebar {
+  padding-left: 88px;
+}
+
+.titlebar__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 590;
+  letter-spacing: 0.02em;
+}
+
+.titlebar__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.badge {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- 按钮 ---------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 510;
+  cursor: pointer;
+  /* 只声明要动的属性，不用 transition: all */
+  transition: transform 160ms var(--ease-out), opacity 160ms var(--ease-out),
+    background-color 160ms ease;
+}
+
+.button:active {
+  /* 按压反馈：界面在听用户说话 */
+  transform: scale(0.97);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.button--primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.button--primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+  transform: none;
+}
+
+.button--ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .button--ghost:hover {
+    background: var(--surface-sunken);
+    color: var(--text);
+  }
+}
+
+.kbd {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.16);
+  font-family: inherit;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* ---------- 舞台 ---------- */
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.stage > section {
+  position: absolute;
+  inset: 0;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
+}
+
+.stage > section[hidden] {
+  display: none;
+}
+
+/* 入场从 8px 下方浮上来，不从 scale(0) 冒出来 */
+.stage > section[data-entering] {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* 键盘触发的动作不做动画——键盘操作每天重复几十上百次，动画只会显得迟钝 */
+.stage[data-instant] > section {
+  transition-duration: 0ms;
+}
+
+/* ---------- 编辑态 ---------- */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px 16px;
+}
+
+.editor__input {
+  flex: 1;
+  width: 100%;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.95;
+  resize: none;
+  transition: box-shadow 200ms var(--ease-out);
+}
+
+.editor__input::placeholder {
+  color: var(--text-faint);
+  line-height: 1.9;
+}
+
+.editor__input:focus {
+  outline: none;
+  box-shadow: var(--shadow-md);
+}
+
+.editor__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 14px;
+}
+
+.hint {
+  color: var(--text-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 报告态 ---------- */
+
+.report {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  padding: 20px 24px 16px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 10px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel__title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 590;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.panel--side {
+  background: var(--surface);
+}
+
+.source {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 22px 28px;
+  font-size: 15px;
+  line-height: 2.05;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sentence {
+  position: relative;
+  border-radius: 4px;
+  cursor: default;
+}
+
+/* 强调层用伪元素做，只动 opacity，不触发重绘布局 */
+.sentence::after {
+  content: "";
+  position: absolute;
+  inset: -2px -3px;
+  z-index: -1;
+  border-radius: 5px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 200ms var(--ease-out);
+}
+
+.sentence[data-focused]::after {
+  opacity: 0.08;
+}
+
+.sentence[data-rule="parallelism"] {
+  box-shadow: inset 0 -2px 0 var(--hit-parallel-wash);
+}
+
+.sentence[data-rule="overlong-sentence"] {
+  box-shadow: inset 0 -2px 0 var(--hit-long-wash);
+}
+
+.mark {
+  padding: 1px 2px;
+  border-radius: 4px;
+  background: var(--hit-phrase-wash);
+  color: var(--hit-phrase);
+  font-weight: 510;
+}
+
+/* ---------- 指标 ---------- */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px;
+  border-bottom: 1px solid var(--border);
+  background: var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  overflow: hidden;
+}
+
+.metric {
+  padding: 12px 16px;
+  background: var(--surface);
+}
+
+.metric__label {
+  display: block;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.metric__value {
+  display: block;
+  margin-top: 2px;
+  font-size: 19px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.metric[data-warn] .metric__value {
+  color: var(--hit-phrase);
+}
+
+.side-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.warning {
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--hit-phrase-wash);
+  color: var(--hit-phrase);
+  font-size: 12.5px;
+}
+
+.hits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.hit {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  opacity: 1;
+  transform: translateY(0);
+  transition: transform 160ms var(--ease-out), opacity 160ms var(--ease-out),
+    background-color 160ms ease;
+}
+
+/* 结果逐条浮现，间隔 40ms——超过 80ms 整个界面就显得慢 */
+.hits[data-stagger] .hit {
+  animation: hit-in 220ms var(--ease-out) backwards;
+}
+
+@keyframes hit-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.hit:active {
+  transform: scale(0.99);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .hit:hover {
+    background: var(--surface-sunken);
+  }
+}
+
+.hit__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.hit__rule {
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 530;
+}
+
+.hit__rule[data-rule="banned-phrase"] {
+  background: var(--hit-phrase-wash);
+  color: var(--hit-phrase);
+}
+
+.hit__rule[data-rule="parallelism"] {
+  background: var(--hit-parallel-wash);
+  color: var(--hit-parallel);
+}
+
+.hit__rule[data-rule="overlong-sentence"] {
+  background: var(--hit-long-wash);
+  color: var(--hit-long);
+}
+
+.hit__index {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hit__detail {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.disclaimer {
+  flex: none;
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* ---------- 减少动效 ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  /* 保留透明度变化帮助理解状态，去掉所有位移和缩放 */
+  .stage > section,
+  .hit,
+  .button {
+    transition-property: opacity, background-color;
+  }
+
+  .stage > section[data-entering] {
+    transform: none;
+  }
+
+  .button:active,
+  .hit:active {
+    transform: none;
+  }
+
+  .hits[data-stagger] .hit {
+    animation: none;
+  }
+}

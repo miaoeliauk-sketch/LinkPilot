@@ -1,5 +1,7 @@
 # InkPilot
 
+> 本仓库还有一个互不相关的工具 VoicePilot（口播体检），见 [VOICEPILOT.md](VOICEPILOT.md)。
+
 国风手账素材工具 V0.1。当前已完成 Day 4 装饰叠加，以及 Day 5 第一部分“背景图层替换与重新合成”。
 
 ## 当前范围
