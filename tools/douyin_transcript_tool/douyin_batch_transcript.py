@@ -45,6 +45,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
+from urllib.parse import urlparse
 
 # --------------------------------------------------------------------------
 # 依赖检查：提前给出清晰的中文报错提示，而不是让程序在运行中途因 ImportError 崩溃
@@ -167,18 +168,44 @@ _URL_TRAILING_PUNCT = "，。！？、；：''\"\"【】《》〈〉「」『』
 _DIRECT_MEDIA_EXT_RE = re.compile(r"\.(mp4|m3u8|mov|mkv|webm)(\?|$)", re.IGNORECASE)
 
 
-_DOUYIN_PLAY_URL_RE = re.compile(r"/aweme/v1/play(wm)?/", re.IGNORECASE)
+_DOUYIN_PLAY_PATH_RE = re.compile(r"/aweme/v1/play(wm)?/", re.IGNORECASE)
+
+# 抖音/字节的视频 CDN 域名。采集工具导出的"视频源网址"大多是这些域名下的地址，
+# 路径里没有 .mp4 之类的后缀，光看后缀认不出来，只能按域名认。
+_DOUYIN_MEDIA_HOST_SUFFIXES = (
+    "douyinvod.com",
+    "douyinstatic.com",
+    "douyinpic.com",
+    "ixigua.com",
+    "bytecdn.cn",
+    "byteimg.com",
+    "pstatp.com",
+    "zjcdn.com",
+    "snssdk.com",
+)
 
 
-def is_douyin_play_url(url: str) -> bool:
+def is_douyin_media_url(url: str) -> bool:
     """
-    判断是不是抖音的"播放源地址"（形如 https://www.douyin.com/aweme/v1/play/?video_id=...）。
+    判断是不是抖音的"视频源地址"——即视频文件本身，而不是作品详情页。
 
-    这类地址是视频文件本身，采集工具导出的表格里一般叫"视频源网址"。它虽然挂在 douyin.com
-    域名下，但走的不是作品详情页那套风控，可以直接下载——正好绕开 yt-dlp 抖音解析器长期
-    报"Fresh cookies (not necessarily logged in) are needed"的问题。
+    两种形态都算：
+      1. https://www.douyin.com/aweme/v1/play/?video_id=...
+      2. https://v3-web.douyinvod.com/<一串路径>/?a=6383&ch=...  （CDN 直链，没有后缀）
+
+    这类地址不走作品详情页那套风控，可以直接下载，正好绕开 yt-dlp 抖音解析器长期报
+    "Fresh cookies (not necessarily logged in) are needed" 的问题。但它们要求请求头里带
+    抖音的 Referer，否则 CDN 会直接返回 403 Forbidden。
     """
-    return "douyin.com" in url and bool(_DOUYIN_PLAY_URL_RE.search(url))
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    if not host:
+        return False
+    if host.endswith("douyin.com"):
+        return bool(_DOUYIN_PLAY_PATH_RE.search(url))
+    return any(host == s or host.endswith("." + s) for s in _DOUYIN_MEDIA_HOST_SUFFIXES)
 
 
 def is_direct_media_url(url: str) -> bool:
@@ -201,7 +228,8 @@ def extract_douyin_links(text: str) -> List[str]:
     seen = set()
     for match in _URL_RE.finditer(text):
         url = match.group(0).rstrip(_URL_TRAILING_PUNCT)
-        if "douyin.com" not in url and not is_direct_media_url(url):
+        if ("douyin.com" not in url and not is_direct_media_url(url)
+                and not is_douyin_media_url(url)):
             continue
         if url not in seen:
             seen.add(url)
@@ -380,7 +408,7 @@ def download_audio(
         ydl_opts["keepvideo"] = True
         ydl_opts["merge_output_format"] = "mp4"
 
-    if is_douyin_play_url(link) or is_direct_media_url(link):
+    if is_douyin_media_url(link) or is_direct_media_url(link):
         # 已经是视频文件本身的地址了，不需要再走"某平台专用解析"。强制用 yt-dlp 的通用下载器，
         # 这样就绕开了抖音解析器（它长期报 "Fresh cookies ... are needed"，是 yt-dlp 上游
         # 尚未修复的问题）。抖音的播放源地址要求带上 Referer，否则会被拒绝。
