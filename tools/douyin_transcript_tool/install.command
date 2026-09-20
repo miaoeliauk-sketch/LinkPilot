@@ -101,7 +101,8 @@ echo ""
 echo "[4/4] 自检 ..."
 "$VPY" - <<'PYEOF' || exit 1
 import importlib.util, shutil, sys
-missing = [m for m in ("yt_dlp", "whisper", "openpyxl", "requests", "tkinter")
+missing = [m for m in ("yt_dlp", "whisper", "openpyxl", "requests",
+                       "curl_cffi", "f2", "tkinter")
            if importlib.util.find_spec(m) is None]
 if shutil.which("ffmpeg") is None:
     missing.append("ffmpeg(命令行)")

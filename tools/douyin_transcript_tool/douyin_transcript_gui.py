@@ -22,6 +22,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -41,6 +42,13 @@ try:
 except ImportError as exc:
     raise RuntimeError(
         "找不到 douyin_excel_transcript.py，请确认它和本文件在同一个文件夹里。"
+    ) from exc
+
+try:
+    import douyin_api
+except ImportError as exc:
+    raise RuntimeError(
+        "找不到 douyin_api.py，请确认它和本文件在同一个文件夹里。"
     ) from exc
 
 try:
@@ -443,6 +451,30 @@ class TranscriptGUI:
             self.is_running = False
             self.done_queue.put(True)
 
+    def _make_douyin_api(self):
+        """
+        用"Cookies 文件"里的登录信息建一个抖音接口客户端，用来在下载前现取新地址。
+
+        建不起来不算错误——会退回用表格里存的地址，只是那些地址过期后就下不动了。
+        """
+        cookies_file = self.cookies_file_var.get().strip()
+        if not cookies_file:
+            self._log(
+                "没填\"Cookies 文件\"，只能用表格里存的地址。那些地址带签名、几小时就过期，"
+                "隔夜的表格基本都会 403。建议导出一份 cookies.txt 填到上面，就能每条现取新地址。"
+            )
+            return None
+        try:
+            api = douyin_api.DouyinAPI(douyin_api.cookie_header_from_file(cookies_file))
+        except douyin_api.DouyinApiError as exc:
+            self._log(f"读取 Cookies 文件失败：{exc}\n    先退回用表格里存的地址。")
+            return None
+        except Exception as exc:  # noqa: BLE001
+            self._log(f"初始化抖音接口失败：{exc}\n    先退回用表格里存的地址。")
+            return None
+        self._log("已启用\"下载前现取地址\"，不再依赖表格里那些会过期的地址。")
+        return api
+
     def _process_one_excel_file(self, excel_path, mode, transcribe_args, cookies_from_browser, output_dir):
         """处理单个 Excel 文件，不负责整体的 is_running/按钮状态（那些由
         _run_excel_worker 统一管理），方便多文件依次处理时正确衔接。"""
@@ -467,18 +499,52 @@ class TranscriptGUI:
             self._log(f"表格里找不到\"作品网址\"列，实际的列名有：{header}")
             return
 
-        # "视频源网址"是视频文件本身的地址，能绕开 yt-dlp 抖音解析器长期报
-        # "Fresh cookies ... are needed" 的问题，所以有这一列就优先用它，
-        # 哪一行是空的再退回用该行的"作品网址"。
+        # 表格里那列"视频源网址"是带签名的临时地址，隔夜就失效（403），所以它只当备用。
+        # 首选是拿"作品id"在下载前现去抖音要一个新地址，见下面的 api。
         media_col = excel_core.find_column_index(header, "视频源网址")
-        if media_col is not None:
-            self._log("表格里有\"视频源网址\"列，优先用它下载（可绕开抖音的 cookies 报错）。")
+        id_col = excel_core.find_column_index(header, "作品id")
+
+        api = self._make_douyin_api()
+
+        def _row_stored_link(row_idx):
+            """这一行在表格里存着的地址。只用来判断该行是否需要处理，不联网。"""
+            for col in (media_col, link_col):
+                if col is None:
+                    continue
+                value = ws.cell(row=row_idx, column=col).value
+                if value and str(value).strip():
+                    return str(value).strip()
+            return ""
+
+        warned_rows = set()
 
         def _row_link(row_idx):
+            """取这一行要下载的地址：能现取就现取，取不到再退回表格里存的。"""
+            if api is not None:
+                aweme_id = douyin_api.extract_aweme_id(
+                    ws.cell(row=row_idx, column=id_col).value if id_col else None
+                ) or douyin_api.extract_aweme_id(
+                    ws.cell(row=row_idx, column=link_col).value
+                )
+                if aweme_id:
+                    try:
+                        return api.fresh_play_url(aweme_id)
+                    except douyin_api.DouyinApiError as exc:
+                        self._log(f"    现取地址失败（{exc}），改用表格里存的地址试试。")
+
             if media_col is not None:
                 value = ws.cell(row=row_idx, column=media_col).value
                 if value and str(value).strip():
-                    return str(value).strip()
+                    url = str(value).strip()
+                    expiry = douyin_api.url_expiry(url)
+                    if (expiry is not None and expiry < time.time()
+                            and row_idx not in warned_rows):
+                        warned_rows.add(row_idx)
+                        overdue = (time.time() - expiry) / 3600
+                        self._log(
+                            f"    ⚠️ 表格里这条地址已经过期 {overdue:.1f} 小时，下载多半会 403。"
+                        )
+                    return url
             value = ws.cell(row=row_idx, column=link_col).value
             return str(value).strip() if value else ""
 
@@ -498,7 +564,7 @@ class TranscriptGUI:
 
         pending_rows = []
         for row_idx in range(2, ws.max_row + 1):
-            if not _row_link(row_idx):
+            if not _row_stored_link(row_idx):
                 continue
             if excel_core._is_marked_done(ws.cell(row=row_idx, column=status_col).value):
                 continue
