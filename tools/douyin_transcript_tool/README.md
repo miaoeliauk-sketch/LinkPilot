@@ -93,6 +93,27 @@ Windows 上没有 Homebrew，装法跟 macOS 不太一样：
 
 安装好依赖（见上面"安装依赖"/"Windows 安装说明"）之后，有两种打开方式：
 
+### macOS 一键安装（推荐，第一次用走这个）
+
+1. 把文件夹解压到**路径不含中文**的地方（比如桌面）
+2. 双击 **`install.command`**，等它显示 `✅ 安装完成！`
+3. 双击 **`start_gui.command`** 打开程序
+
+`install.command` 会依次做四件事，缺什么就提示你装什么：
+
+| 步骤 | 做什么 |
+|---|---|
+| 1/4 | 找一个**自带图形界面模块**的 Python（Homebrew 版默认不带，会给出带版本号的 `brew install python-tk@X.Y`，可自动装） |
+| 2/4 | 检查 **ffmpeg**（下载转码和本地转写都离不开它，可自动装） |
+| 3/4 | 在文件夹里建 `.venv` 独立环境装依赖，**不动你的系统 Python**（绕开 macOS 的 `externally-managed-environment` 限制） |
+| 4/4 | 自检，逐个确认真的装上了 |
+
+> Whisper 会顺带下载 PyTorch，有几百 MB，第一次装通常 5~15 分钟，别关窗口。
+
+**抖音改规则导致下载失败时**，双击 **`update.command`** 升级 yt-dlp，这是最常见的修复手段。
+
+---
+
 **方式一：双击启动（装好依赖后日常用这个就行，不用再开终端/命令提示符）**
 
 - **macOS**：双击文件夹里的 **`start_gui.command`**。
