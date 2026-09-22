@@ -557,6 +557,36 @@ def get_local_whisper_model(model_size: str):
 
 _PUNCTUATION_PROMPT = "以下是普通话的句子，请使用简体中文和标点符号（逗号、句号、问号）。"
 
+# 提示词里那些会被回吐的词，按长度从长到短，逐个从结果里剔掉
+_PROMPT_FRAGMENTS = sorted(
+    ["以下是普通话的句子", "请使用简体中文和标点符号", "简体中文", "普通话",
+     "标点符号", "句子", "逗号", "句号", "问号"],
+    key=len, reverse=True,
+)
+
+
+def _is_prompt_echo(text: str) -> bool:
+    """
+    判断转写结果是不是"提示词的回声"。
+
+    音频全静音时，Whisper 往往只会把 initial_prompt 拆碎了重复吐出来，例如
+    "请使用简体中文和标点符号）逗号）逗号）。"。把提示词里的词和标点都剔掉之后，
+    如果几乎什么都不剩，那这就不是真的转写内容。
+    """
+    if not text:
+        return False
+    rest = text
+    hit = False
+    for frag in _PROMPT_FRAGMENTS:
+        if frag in rest:
+            hit = True
+            rest = rest.replace(frag, "")
+    if not hit:
+        # 没有一个提示词的影子，那再短也是真实内容（"好的。"这种）
+        return False
+    rest = re.sub(r"[\s，。、；：！？（）()【】\[\]…·~—\-]+", "", rest)
+    return len(rest) <= 2
+
 
 def transcribe_local(audio_path: str, model_size: str) -> "tuple[str, list]":
     """
@@ -591,6 +621,14 @@ def transcribe_local(audio_path: str, model_size: str) -> "tuple[str, list]":
     except RuntimeError as exc:
         raise RuntimeError(f"本地 Whisper 转写失败：{exc}") from exc
     text = result.get("text", "") if isinstance(result, dict) else str(result)
+    text = text.strip()
+    if _is_prompt_echo(text):
+        # 音频是空的/全静音时，Whisper 会把 initial_prompt 原样（或碎片化地重复）吐回来，
+        # 得到"请使用简体中文和标点符号）逗号）逗号）"这种垃圾。不拦住的话会被当成转写
+        # 成功写进表格，比直接报错还糟——用户以为转好了，其实一个字都没有。
+        raise RuntimeError(
+            "转写结果只是提示词的回声，说明音频是空的或全静音（多半是视频没真正下载下来）。"
+        )
     segments = []
     if isinstance(result, dict):
         for seg in result.get("segments", []) or []:
@@ -599,7 +637,7 @@ def transcribe_local(audio_path: str, model_size: str) -> "tuple[str, list]":
                 "end": seg.get("end", 0.0),
                 "text": (seg.get("text") or "").strip(),
             })
-    return text.strip(), segments
+    return text, segments
 
 
 # --------------------------------------------------------------------------

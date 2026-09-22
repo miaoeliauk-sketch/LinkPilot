@@ -529,6 +529,9 @@ class TranscriptGUI:
                 if aweme_id:
                     try:
                         return api.fresh_play_url(aweme_id)
+                    except douyin_api.NoVideoError:
+                        # 图文/图集没有音频，退回用表格里的地址也没意义，直接往上抛
+                        raise
                     except douyin_api.DouyinApiError as exc:
                         self._log(f"    现取地址失败（{exc}），改用表格里存的地址试试。")
 
@@ -578,13 +581,29 @@ class TranscriptGUI:
 
         success = 0
         failed = 0
+        skipped = 0
         stopped_early = False
         for idx, row_idx in enumerate(pending_rows, start=1):
             if self.stop_requested.is_set():
                 stopped_early = True
                 self._log("已停止，之前处理好的部分都已经保存在 Excel 里了。")
                 break
-            link = _row_link(row_idx)
+            try:
+                link = _row_link(row_idx)
+            except douyin_api.NoVideoError as exc:
+                # 图文/图集没有音频，再试多少次都没用，标记掉免得每次重跑都卡在这
+                ws.cell(row=row_idx, column=transcript_col,
+                        value="（图文作品，没有音频可转写）")
+                ws.cell(row=row_idx, column=status_col, value="True")
+                skipped += 1
+                self._log(f"[{idx}/{len(pending_rows)}] 第 {row_idx} 行跳过：{exc}")
+                try:
+                    wb.save(excel_path)
+                except OSError as exc2:
+                    self._log(f"保存 Excel 文件失败（可能文件正被 Excel/WPS 打开着）：{exc2}")
+                    break
+                continue
+
             self._log(f"[{idx}/{len(pending_rows)}] 第 {row_idx} 行，开始处理：{link}")
             audio_path = None
             try:
@@ -637,7 +656,9 @@ class TranscriptGUI:
                 break
 
         if not stopped_early:
-            self._log(f"《{os.path.basename(excel_path)}》处理完成：成功 {success} 条，失败 {failed} 条。")
+            summary = f"《{os.path.basename(excel_path)}》处理完成：成功 {success} 条，失败 {failed} 条"
+            summary += f"，跳过 {skipped} 条图文作品。" if skipped else "。"
+            self._log(summary)
 
     def _run_worker(self, links, mode, transcribe_args, output_dir, cookies_from_browser):
         """外层安全网：不管里面出什么没预料到的异常，都保证按钮状态能恢复。"""

@@ -56,6 +56,10 @@ class DouyinApiError(RuntimeError):
     pass
 
 
+class NoVideoError(DouyinApiError):
+    """这条作品压根没有视频（图文/图集），没有音频可转写。"""
+
+
 def extract_aweme_id(value) -> Optional[str]:
     """从作品链接或"作品id"单元格里取出作品 id。取不到返回 None。"""
     if value is None:
@@ -160,7 +164,9 @@ class DouyinAPI:
         uri = play_addr.get("uri")
         if uri:
             return f"https://www.douyin.com/aweme/v1/play/?video_id={uri}&ratio=1080p&line=0"
-        raise DouyinApiError(f"作品 {aweme_id} 没有可用的播放地址（可能是图文作品）")
+        if detail.get("images"):
+            raise NoVideoError(f"作品 {aweme_id} 是图文/图集，没有音频")
+        raise DouyinApiError(f"作品 {aweme_id} 没有可用的播放地址")
 
 
 def url_expiry(url: str) -> Optional[int]:
