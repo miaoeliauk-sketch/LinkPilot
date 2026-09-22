@@ -243,14 +243,52 @@ class DouyinAPI:
             f"没查到作品 {aweme_id}。两条路都试过了——" + "；".join(attempts)
         )
 
+    @staticmethod
+    def _rank_url(url: str) -> int:
+        """
+        给候选地址打分，越小越优先。
+
+        接口会给好几个候选，质量差别很大：
+          - v*-web.douyinvod.com/...?a=6383&...&x-expires=... 是真正的视频 CDN 直链，
+            带签名和作品专属参数，这是我们要的；
+          - douyinstatic.com/obj/<hash> 这种静态对象地址，实测**不同作品可能返回同一个**，
+            下下来是静音/无关内容，转写出来是垃圾，只能当最后的兜底。
+        """
+        host = (urlparse(url).hostname or "").lower()
+        is_vod = "douyinvod.com" in host
+        signed = "x-expires=" in url          # 作品专属签名，最可靠
+        param = "a=6383" in url               # 带播放参数，次之
+        if is_vod and signed:
+            return 0
+        if is_vod and param:
+            return 1
+        if is_vod:
+            return 2
+        if signed or param:
+            return 3
+        if "/obj/" in url:
+            return 9  # 静态对象，最不可信
+        return 5
+
+    def _candidate_urls(self, detail: dict) -> list:
+        """把回应里所有能用的播放地址收集起来（含各码率版本），去重后保序。"""
+        video = detail.get("video") or {}
+        found = []
+        for addr in [video.get("play_addr") or {}] + [
+            (b.get("play_addr") or {}) for b in (video.get("bit_rate") or [])
+        ]:
+            for url in addr.get("url_list") or []:
+                if url and url not in found:
+                    found.append(url)
+        return found
+
     def fresh_play_url(self, aweme_id: str) -> str:
         """为一条作品现取一个新的播放地址。拿不到就抛 DouyinApiError。"""
         detail = self.aweme_detail(aweme_id)
-        play_addr = (detail.get("video") or {}).get("play_addr") or {}
-        for url in play_addr.get("url_list") or []:
-            if url:
-                return url
-        uri = play_addr.get("uri")
+        candidates = self._candidate_urls(detail)
+        if candidates:
+            return sorted(candidates, key=self._rank_url)[0]
+        uri = ((detail.get("video") or {}).get("play_addr") or {}).get("uri")
         if uri:
             return f"https://www.douyin.com/aweme/v1/play/?video_id={uri}&ratio=1080p&line=0"
         if detail.get("images"):

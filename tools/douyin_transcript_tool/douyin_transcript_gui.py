@@ -44,7 +44,7 @@ except ImportError as exc:
         "找不到 douyin_excel_transcript.py，请确认它和本文件在同一个文件夹里。"
     ) from exc
 
-BUILD = "2026-09-22i"
+BUILD = "2026-09-22j"
 
 try:
     import douyin_api
@@ -639,6 +639,7 @@ class TranscriptGUI:
         success = 0
         failed = 0
         skipped = 0
+        seen_links = {}
         stopped_early = False
         for idx, row_idx in enumerate(pending_rows, start=1):
             if self.stop_requested.is_set():
@@ -647,6 +648,23 @@ class TranscriptGUI:
                 break
             try:
                 link = _row_link(row_idx)
+                # 不同作品拿到同一个地址，说明接口没按作品返回对应视频。继续跑只会
+                # 把同一段无关文字填满整张表，比直接失败更难发现，所以立刻停。
+                if link and api is not None:
+                    seen_links.setdefault(link, row_idx)
+                    if len(seen_links) == 1 and len(pending_rows) > 1 and idx >= 8:
+                        msg = (
+                            f"已停下，避免把错误内容写满表格。\n\n"
+                            f"前 {idx} 行是不同的作品，却都拿到了同一个视频地址：\n"
+                            f"{link[:90]}\n\n"
+                            f"说明抖音接口没有按作品 id 返回对应的视频，"
+                            f"拿到的内容是错的。\n"
+                            f"请把这个情况告诉我，先别重跑。"
+                        )
+                        self._log(msg.replace("\n\n", "\n"))
+                        messagebox.showerror("地址重复，已停止", msg)
+                        stopped_early = True
+                        break
             except douyin_api.NoVideoError as exc:
                 # 图文/图集没有音频，再试多少次都没用，标记掉免得每次重跑都卡在这
                 ws.cell(row=row_idx, column=transcript_col,

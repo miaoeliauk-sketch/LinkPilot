@@ -34,6 +34,37 @@ def step(n, title):
     print(f"\n[{n}/4] {title}")
 
 
+def find_rows(xlsx, want=3):
+    """从表格里找前 want 条不同的作品 id。"""
+    from openpyxl import load_workbook
+    import douyin_api
+
+    ws = load_workbook(xlsx, read_only=True).worksheets[0]
+    rows = ws.iter_rows(values_only=True)
+    header = [str(c or "") for c in next(rows)]
+
+    def idx(name):
+        return header.index(name) if name in header else None
+
+    i_id, i_link = idx("作品id"), idx("作品网址")
+    if i_id is None and i_link is None:
+        die(f"表格里既没有「作品id」也没有「作品网址」列。实际列名：{header}")
+
+    ids = []
+    for row in rows:
+        def cell(i):
+            return row[i] if i is not None and i < len(row) else None
+        aid = (douyin_api.extract_aweme_id(cell(i_id))
+               or douyin_api.extract_aweme_id(cell(i_link)))
+        if aid and aid not in ids:
+            ids.append(aid)
+        if len(ids) >= want:
+            break
+    if not ids:
+        die("表格里一条作品 id 都取不到。")
+    return ids
+
+
 def find_row(xlsx):
     """从表格里找第一条能用的（作品id, 表格里存的地址）。"""
     from openpyxl import load_workbook
@@ -154,6 +185,27 @@ def main():
     else:
         print("      拿到新地址")
     print(f"      {fresh[:95]}...")
+
+    # 关键一步：不同作品必须拿到不同地址。如果接口对谁都返回同一个文件，
+    # 下载和转写都会"成功"，但写进表格的是同一段无关内容——比报错更难发现。
+    others = [i for i in find_rows(xlsx, want=3) if i != aweme_id][:2]
+    if others:
+        print("\n      核对：换两个作品看看地址是否不同")
+        urls = {aweme_id: fresh}
+        for other in others:
+            try:
+                urls[other] = api.fresh_play_url(other)
+            except douyin_api.DouyinApiError as e:
+                print(f"      {other} -> 取不到（{e}）")
+                continue
+            print(f"      {other} -> {urls[other][:72]}...")
+        distinct = len(set(urls.values()))
+        if distinct == 1 and len(urls) > 1:
+            print()
+            die("不同作品返回了完全相同的地址——接口没有按作品 id 返回对应视频，\n"
+                "   这条路拿到的内容是错的。千万别跑整批，否则表格里会填进一堆"
+                "同样的无关文字。\n   把这段输出发我。")
+        print(f"      ✓ {len(urls)} 个作品拿到 {distinct} 个不同地址")
 
     # 4. 真下载
     step(4, "试着下载这个新地址 ...")

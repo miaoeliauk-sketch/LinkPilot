@@ -638,6 +638,16 @@ _PROMPT_FRAGMENTS = sorted(
     key=len, reverse=True,
 )
 
+# Whisper 遇到静音时还会凭空编出这类"字幕组署名"，是训练数据里的常见尾巴，
+# 跟视频内容毫无关系。它们和提示词回声一样，都是"音频其实是空的"的信号。
+_HALLUCINATION_RES = [
+    re.compile(r"字幕\s*by\s*\S{0,10}", re.IGNORECASE),
+    re.compile(r"字幕(志愿者|组|制作)\S{0,10}"),
+    re.compile(r"由\S{0,8}字幕组\S{0,6}"),
+    re.compile(r"请不吝点赞\S{0,20}"),
+    re.compile(r"明镜与点点栏目"),
+]
+
 
 def _is_prompt_echo(text: str) -> bool:
     """
@@ -649,17 +659,55 @@ def _is_prompt_echo(text: str) -> bool:
     """
     if not text:
         return False
+
+    def strip_punct(s):
+        return re.sub(r"[\s，。、；：！？（）()【】\[\]…·~—\-﹐,.!?]+", "", s)
+
+    total = len(strip_punct(text))
+    if not total:
+        return False
+
+    # 真实内容里绝不会把提示词重复念两遍，出现两次以上基本可以断定是回声
+    if len(re.findall(r"简体中文和标点符号", text)) >= 2:
+        return True
+
     rest = text
     hit = False
     for frag in _PROMPT_FRAGMENTS:
         if frag in rest:
             hit = True
             rest = rest.replace(frag, "")
+    for pattern in _HALLUCINATION_RES:
+        new_rest = pattern.sub("", rest)
+        if new_rest != rest:
+            hit = True
+            rest = new_rest
     if not hit:
-        # 没有一个提示词的影子，那再短也是真实内容（"好的。"这种）
+        # 既没有提示词的影子也没有幻觉尾巴，那再短也是真实内容（"好的。"这种）
         return False
-    rest = re.sub(r"[\s，。、；：！？（）()【】\[\]…·~—\-]+", "", rest)
-    return len(rest) <= 2
+
+    left = len(strip_punct(rest))
+    if left <= 2:
+        return True
+    # 剥掉提示词和幻觉之后剩不到四成，说明整段主要就是这些噪声拼起来的
+    if left / total < 0.4:
+        return True
+
+    leftover = strip_punct(rest)
+    # 我们固定按中文转写，剩下的却大半是英文字母，那是静音时编出来的歌词之类
+    if len(re.findall(r"[A-Za-z]", leftover)) / max(len(leftover), 1) > 0.5:
+        return True
+    # 同一个短词反复刷屏（"计划）计划）计划）…"），也是静音时的经典空转。
+    # 这里按定长片段逐个数，不能用贪婪正则切词——那样"编号计划"会被当成一个词，
+    # 反而数不出"计划"重复了多少次。
+    span = len(leftover)
+    for size in (2, 3, 4):
+        for start in range(span - size + 1):
+            token = leftover[start:start + size]
+            count = leftover.count(token)
+            if count >= 4 and size * count / max(span, 1) > 0.4:
+                return True
+    return False
 
 
 _SENTENCE_END_RE = re.compile(r"[。！？!?；;…]")
