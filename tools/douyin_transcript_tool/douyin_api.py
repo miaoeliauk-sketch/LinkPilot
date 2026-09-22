@@ -29,23 +29,36 @@ except ImportError:
     ABogusManager = None
 
 
-# 这里的 Windows / Win32 是发给抖音服务器的浏览器指纹，跟你本机是不是 Mac 无关，
-# 而且必须和下面 UA 里写的保持一致，不要改。
-UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
+# 浏览器指纹必须自洽，否则抖音直接 403。这里有四样东西要对齐：
+#   1. 算 a_bogus 签名用的 UA
+#   2. 请求里实际发出去的 User-Agent
+#   3. curl_cffi 模拟的 TLS/HTTP2 指纹（连带 sec-ch-ua、sec-ch-ua-platform 两个头）
+#   4. BASE_PARAMS 里的 os_name / browser_platform / browser_version
+CHROME_VERSION = "146"
+IMPERSONATE = f"chrome{CHROME_VERSION}"
 
-IMPERSONATE = "chrome131"
+# curl_cffi 的 chromeNNN 指纹会自己发一个 sec-ch-ua-platform 头，而且**写死是 macOS**
+# （在 Linux 上实测也是 macOS，它不跟随本机系统，也改不掉）。所以 UA 和下面的
+# os_name / browser_platform 都必须跟着报 macOS，四层才自洽。
+#
+# 原版报的是 Windows：那份代码跑在 Windows 上恰好不冲突，搬到 Mac 上就变成
+# "UA 说 Windows、平台头说 macOS、版本号又对不上"，抖音一看就拦，回 403。
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+      f"(KHTML, like Gecko) Chrome/{CHROME_VERSION}.0.0.0 Safari/537.36")
+_OS_PARAMS = {"os_name": "Mac OS", "os_version": "10.15.7",
+              "browser_platform": "MacIntel"}
 
 BASE_PARAMS = {
     "device_platform": "webapp", "aid": "6383", "channel": "channel_pc_web",
     "update_version_code": "170400", "pc_client_type": "1", "support_h265": "1",
     "support_dash": "1", "version_code": "290100", "version_name": "29.1.0",
     "cookie_enabled": "true", "screen_width": "1536", "screen_height": "864",
-    "browser_language": "zh-CN", "browser_platform": "Win32", "browser_name": "Chrome",
-    "browser_version": "146.0.0.0", "browser_online": "true", "engine_name": "Blink",
-    "engine_version": "146.0.0.0", "os_name": "Windows", "os_version": "10",
+    "browser_language": "zh-CN", "browser_name": "Chrome",
+    "browser_version": f"{CHROME_VERSION}.0.0.0", "browser_online": "true",
+    "engine_name": "Blink", "engine_version": f"{CHROME_VERSION}.0.0.0",
     "cpu_core_num": "16", "device_memory": "8", "platform": "PC", "downlink": "10",
     "effective_type": "4g", "round_trip_time": "200", "uifid": "", "msToken": "",
+    **_OS_PARAMS,
 }
 
 _AWEME_ID_RE = re.compile(r"/(?:video|note|slides)/(\d+)")
@@ -129,7 +142,9 @@ class DouyinAPI:
         self._session = session
         self._headers = {
             "Accept": "*/*",
+            "Accept-Encoding": "*/*",
             "Referer": "https://www.douyin.com/?recommend=1",
+            # 显式写死，保证"发出去的 UA"和"算签名用的 UA"逐字相同
             "User-Agent": UA,
             "Cookie": cookie.strip(),
         }
@@ -138,6 +153,12 @@ class DouyinAPI:
         signed = sign_url(f"https://www.douyin.com{path}", {**BASE_PARAMS, **extra})
         resp = self._session.get(signed, headers=self._headers)
         status = getattr(resp, "status_code", 200)
+        if status == 403:
+            raise DouyinApiError(
+                "接口返回 HTTP 403（被抖音风控拦下）。可能是 cookies 过期，"
+                "也可能是抖音又改了签名算法。先重新导出一份 cookies.txt 试试；"
+                "还不行就是签名需要更新了。"
+            )
         if status != 200:
             raise DouyinApiError(f"接口返回 HTTP {status}")
         try:
