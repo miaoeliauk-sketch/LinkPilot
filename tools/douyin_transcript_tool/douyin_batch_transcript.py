@@ -662,6 +662,45 @@ def _is_prompt_echo(text: str) -> bool:
     return len(rest) <= 2
 
 
+_SENTENCE_END_RE = re.compile(r"[。！？!?；;…]")
+_SENTENCE_END_AT_TAIL_RE = re.compile(r"[。！？!?；;…]$")
+
+
+def format_transcript_sentences(text: str, max_chars: int = 46) -> str:
+    """
+    把一整坨转写文字排成一句一行，方便阅读。
+
+    两步：先按已有的句末标点断行；剩下那些又长又没有句末标点的行，再在逗号、顿号
+    这类自然停顿处保守地切开（实在找不到停顿才按长度硬切），避免出现一行几百字。
+    """
+    text = re.sub(r"[ \t\r\f\v]+", " ", (text or "").strip())
+    text = re.sub(r"\n+", "\n", text)
+    if not text:
+        return text
+
+    text = re.sub(r"([。！？!?；;…]+)[ \t]*", r"\1\n", text)
+    output = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        while len(line) > max_chars and not _SENTENCE_END_RE.search(line[:max_chars]):
+            window = line[:max_chars + 1]
+            cut = max(window.rfind(mark, 18, max_chars + 1)
+                      for mark in ("，", ",", "、", "：", ":"))
+            if cut >= 18:
+                piece = line[:cut].rstrip("，,、：:")
+                line = line[cut + 1:].lstrip()
+            else:
+                piece = line[:max_chars]
+                line = line[max_chars:]
+            if piece:
+                output.append(piece + "。")
+        if line:
+            if not _SENTENCE_END_AT_TAIL_RE.search(line):
+                line += "。"
+            output.append(line)
+    return "\n".join(output)
+
+
 def transcribe_local(audio_path: str, model_size: str) -> "tuple[str, list]":
     """
     本地 Whisper 转写。这里做了两处针对中文短视频常见问题的调整：
@@ -711,6 +750,20 @@ def transcribe_local(audio_path: str, model_size: str) -> "tuple[str, list]":
                 "end": seg.get("end", 0.0),
                 "text": (seg.get("text") or "").strip(),
             })
+
+    # Whisper 已经按语音停顿切好了分段，这些是天然的断句点。只取 result["text"] 会把
+    # 它们全丢掉，得到一大坨没有换行的文字；所以这里改成按分段逐行拼，缺句末标点的补上。
+    lines = []
+    for seg in segments:
+        part = seg["text"]
+        if not part:
+            continue
+        if not _SENTENCE_END_AT_TAIL_RE.search(part):
+            part += "。"
+        lines.append(part)
+    if lines:
+        text = "\n".join(lines)
+
     return text, segments
 
 
@@ -971,7 +1024,7 @@ def transcribe_dispatch(audio_path: str, mode: str, args) -> "tuple[str, list]":
         text, segments = transcribe_bailian(audio_path, dashscope_api_key=args.dashscope_api_key)
     else:
         raise RuntimeError(f"未知的转写模式：{mode}")
-    text = to_simplified_chinese(text)
+    text = format_transcript_sentences(to_simplified_chinese(text))
     for seg in segments:
         seg["text"] = to_simplified_chinese(seg.get("text", ""))
     return text, segments
