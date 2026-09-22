@@ -44,6 +44,8 @@ except ImportError as exc:
         "找不到 douyin_excel_transcript.py，请确认它和本文件在同一个文件夹里。"
     ) from exc
 
+BUILD = "2026-09-22c"
+
 try:
     import douyin_api
 except ImportError as exc:
@@ -301,6 +303,8 @@ class TranscriptGUI:
 
     def _log(self, message: str):
         self.log_queue.put(message)
+        # 同时打到终端：出问题时用户截的往往是终端窗口，日志只留在界面里就等于看不见
+        print(message, flush=True)
 
     def _clear_result_display(self):
         """开始新一轮转写前清空结果框，同时把队列里可能残留的上一轮内容也清掉。"""
@@ -577,6 +581,31 @@ class TranscriptGUI:
             self._log("Excel 里没有待处理的行（可能都已经转写过了）。")
             return
 
+        # 没有 cookies 就只能用表格里存的地址；如果那些地址已经过期，这一整批必然全军覆没。
+        # 与其让用户盯着几百条 403 干等，不如开跑前就拦下来，把话说清楚。
+        if api is None and media_col is not None:
+            expiries = []
+            for row_idx in pending_rows:
+                value = ws.cell(row=row_idx, column=media_col).value
+                exp = douyin_api.url_expiry(str(value)) if value else None
+                if exp is not None:
+                    expiries.append(exp)
+            now = time.time()
+            if expiries and all(e < now for e in expiries):
+                hours = (now - max(expiries)) / 3600
+                msg = (
+                    f"这批没法跑，先别开始。\n\n"
+                    f"表格里存的视频地址是带签名的临时地址，已经全部过期"
+                    f"（最后一条过期了 {hours:.0f} 小时）。用过期地址下载，"
+                    f"每一条都会是 403 失败。\n\n"
+                    f"解决办法：在上面的「Cookies 文件」里选一份 cookies.txt"
+                    f"（浏览器装 Get cookies.txt LOCALLY 扩展，登录抖音后导出）。\n"
+                    f"填了之后，程序会在每次下载前现去抖音要一个新地址，表格放多久都不怕。"
+                )
+                self._log(msg.replace("\n\n", "\n"))
+                messagebox.showwarning("需要 Cookies 文件", msg)
+                return
+
         self._log(f"共找到 {len(pending_rows)} 条待处理的行，开始处理...")
 
         success = 0
@@ -752,6 +781,8 @@ class TranscriptGUI:
 
 
 def main():
+    # 打个版本戳：之前多次出现"跑的还是旧文件夹"，有这行一眼就能确认
+    print(f"抖音视频逐字稿提取工具  build {BUILD}", flush=True)
     root = tk.Tk()
     TranscriptGUI(root)
     root.mainloop()
