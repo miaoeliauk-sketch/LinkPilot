@@ -24,6 +24,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+from urllib.parse import urlparse
 from datetime import datetime
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from types import SimpleNamespace
@@ -44,7 +45,11 @@ except ImportError as exc:
         "找不到 douyin_excel_transcript.py，请确认它和本文件在同一个文件夹里。"
     ) from exc
 
-BUILD = "2026-09-22j"
+BUILD = "2026-09-22l"
+
+
+class PlaceholderUrlError(RuntimeError):
+    """这一行在表格里存的是多行共用的占位地址，不是真实视频，处理也是白处理。"""
 
 try:
     import douyin_api
@@ -506,8 +511,34 @@ class TranscriptGUI:
         # 首选是拿"作品id"在下载前现去抖音要一个新地址，见下面的 api。
         media_col = excel_core.find_column_index(header, "视频源网址")
         id_col = excel_core.find_column_index(header, "作品id")
+        type_col = excel_core.find_column_index(header, "作品类型")
 
         api = self._make_douyin_api()
+
+        # 采集工具抓不到真实地址时，会给很多行填同一个占位地址（实测一份表里 132/330
+        # 行共用一个）。这种地址下下来是同一段静音内容，转写出来全是幻觉垃圾。
+        # 先把"被多行共用"的地址找出来，后面直接跳过，别浪费几小时。
+        # 同一个文件在不同域名下地址不一样（sf3-sign/... 和 sf11-cdn-tos/obj/...），
+        # 所以按地址末尾那个对象 id 来认，才能把它们算作同一个东西。
+        def _object_key(url):
+            path = urlparse(url).path.rstrip("/")
+            return path.rsplit("/", 1)[-1] if path else url
+
+        placeholder_urls = set()
+        if media_col is not None:
+            counts = {}
+            for row_idx in range(2, ws.max_row + 1):
+                value = ws.cell(row=row_idx, column=media_col).value
+                if value and str(value).strip():
+                    key = _object_key(str(value).strip())
+                    counts[key] = counts.get(key, 0) + 1
+            placeholder_urls = {u for u, n in counts.items() if n >= 3}
+            if placeholder_urls:
+                repeated = sum(counts[u] for u in placeholder_urls)
+                self._log(
+                    f"注意：表格里有 {repeated} 行共用 {len(placeholder_urls)} 个重复地址，"
+                    f"这是采集工具没抓到真实地址时填的占位符，会被跳过。"
+                )
 
         def _row_stored_link(row_idx):
             """这一行在表格里存着的地址。只用来判断该行是否需要处理，不联网。"""
@@ -522,8 +553,36 @@ class TranscriptGUI:
         warned_rows = set()
 
         def _row_link(row_idx):
-            """取这一行要下载的地址：能现取就现取，取不到再退回表格里存的。"""
-            if api is not None:
+            """
+            取这一行要下载的地址。
+
+            **表格里存的地址优先**：实测抖音那个免签名接口对不同作品会返回同一个占位
+            文件（下下来是静音），而采集工具写进表格的地址是每条不同的真货。只有表格
+            里没有、或者已经过期时，才去问接口要一个新的。
+            """
+            # 表格已经写明是图集/图文的，直接跳过：没有音频，下什么都白搭
+            if type_col is not None:
+                kind = str(ws.cell(row=row_idx, column=type_col).value or "")
+                if "图" in kind:
+                    raise douyin_api.NoVideoError(f"{kind}作品，没有音频")
+
+            stored = ""
+            if media_col is not None:
+                value = ws.cell(row=row_idx, column=media_col).value
+                if value and str(value).strip():
+                    stored = str(value).strip()
+
+            stored_usable = bool(stored)
+            if stored and _object_key(stored) in placeholder_urls:
+                stored_usable = False   # 多行共用的占位地址，等于没有
+            expiry = douyin_api.url_expiry(stored) if stored else None
+            if expiry is not None and expiry < time.time():
+                stored_usable = False   # 过期了，下载必然 403
+            if stored_usable:
+                return stored
+
+            # 表格里这条不能用，才去问接口
+            if api is not None and not api_unreliable["yes"]:
                 aweme_id = douyin_api.extract_aweme_id(
                     ws.cell(row=row_idx, column=id_col).value if id_col else None
                 ) or douyin_api.extract_aweme_id(
@@ -531,26 +590,25 @@ class TranscriptGUI:
                 )
                 if aweme_id:
                     try:
-                        return api.fresh_play_url(aweme_id)
+                        fresh = api.fresh_play_url(aweme_id)
                     except douyin_api.NoVideoError:
-                        # 图文/图集没有音频，退回用表格里的地址也没意义，直接往上抛
-                        raise
+                        raise   # 图文/图集没有音频，换地址也没用
                     except douyin_api.DouyinApiError as exc:
-                        self._log(f"    现取地址失败（{exc}），改用表格里存的地址试试。")
+                        self._log(f"    现取地址失败：{exc}")
+                    else:
+                        owner = api_urls.setdefault(fresh, aweme_id)
+                        if owner != aweme_id:
+                            api_unreliable["yes"] = True
+                            self._log(
+                                "接口对不同作品返回了同一个地址（占位内容），之后不再用它。"
+                            )
+                        elif _object_key(fresh) not in placeholder_urls:
+                            return fresh
 
-            if media_col is not None:
-                value = ws.cell(row=row_idx, column=media_col).value
-                if value and str(value).strip():
-                    url = str(value).strip()
-                    expiry = douyin_api.url_expiry(url)
-                    if (expiry is not None and expiry < time.time()
-                            and row_idx not in warned_rows):
-                        warned_rows.add(row_idx)
-                        overdue = (time.time() - expiry) / 3600
-                        self._log(
-                            f"    ⚠️ 表格里这条地址已经过期 {overdue:.1f} 小时，下载多半会 403。"
-                        )
-                    return url
+            if stored:
+                raise PlaceholderUrlError(
+                    "表格里这条是占位地址或已过期，接口也拿不到新的，需要重新采集"
+                )
             value = ws.cell(row=row_idx, column=link_col).value
             return str(value).strip() if value else ""
 
@@ -606,40 +664,46 @@ class TranscriptGUI:
                 messagebox.showwarning("这批跑不了", msg)
                 return
 
-        # 开跑前拿第一条真视频试一次"现取地址"。成不成一次就知道，
-        # 不必等到失败几百次之后才发现 cookies 根本不能用。
-        if api is not None:
-            for row_idx in pending_rows:
-                aweme_id = douyin_api.extract_aweme_id(
-                    ws.cell(row=row_idx, column=id_col).value if id_col else None
-                ) or douyin_api.extract_aweme_id(ws.cell(row=row_idx, column=link_col).value)
-                if not aweme_id:
-                    continue
-                try:
-                    probe = api.fresh_play_url(aweme_id)
-                except douyin_api.NoVideoError:
-                    continue  # 图文作品，换下一条试
-                except douyin_api.DouyinApiError as exc:
-                    msg = (
-                        f"预检没通过，这批先不跑了。\n\n"
-                        f"用你选的 Cookies 文件去抖音要新地址时失败了：\n{exc}\n\n"
-                        f"最常见的原因是 cookies 过期或没真正登录。\n"
-                        f"请在浏览器里重新登录抖音，重新导出一份 cookies.txt 再试。"
-                    )
-                    self._log(msg.replace("\n\n", "\n"))
-                    messagebox.showerror("Cookies 用不了", msg)
-                    return
-                exp = douyin_api.url_expiry(probe)
-                left = f"，{(exp - time.time()) / 3600:.1f} 小时后到期" if exp else ""
-                self._log(f"预检通过：成功现取到新地址{left}。")
-                break
-
-        self._log(f"共找到 {len(pending_rows)} 条待处理的行，开始处理...")
-
         success = 0
         failed = 0
         skipped = 0
         seen_links = {}
+        api_urls = {}
+        api_unreliable = {"yes": False}
+        linked_rows = {"n": 0}
+
+        # 开跑前先用两条不同的作品试一下接口：拿到的地址必须不一样。抖音的免签名接口
+        # 实测会对所有作品返回同一个占位文件，那种地址下下来是静音，转写全是幻觉。
+        # 在这里一次问清楚，就不用等某一行踩坑之后才发现。
+        if api is not None:
+            probes = {}
+            for row_idx in pending_rows:
+                aweme_id = douyin_api.extract_aweme_id(
+                    ws.cell(row=row_idx, column=id_col).value if id_col else None
+                ) or douyin_api.extract_aweme_id(ws.cell(row=row_idx, column=link_col).value)
+                if not aweme_id or aweme_id in probes:
+                    continue
+                try:
+                    probes[aweme_id] = api.fresh_play_url(aweme_id)
+                except douyin_api.NoVideoError:
+                    continue  # 图文作品，换下一条试
+                except douyin_api.DouyinApiError as exc:
+                    self._log(f"接口探测失败（{exc}），这一批只用表格里存的地址。")
+                    api_unreliable["yes"] = True
+                    break
+                if len(probes) >= 2:
+                    break
+            if len(probes) >= 2 and len(set(probes.values())) == 1:
+                api_unreliable["yes"] = True
+                self._log(
+                    "接口对两个不同作品返回了同一个地址（占位内容），这一批不用它，"
+                    "只用表格里存的地址。"
+                )
+            elif probes and not api_unreliable["yes"]:
+                self._log("接口探测通过：不同作品拿到不同地址，可以当备用来源。")
+
+        self._log(f"共找到 {len(pending_rows)} 条待处理的行，开始处理...")
+
         stopped_early = False
         for idx, row_idx in enumerate(pending_rows, start=1):
             if self.stop_requested.is_set():
@@ -651,11 +715,15 @@ class TranscriptGUI:
                 # 不同作品拿到同一个地址，说明接口没按作品返回对应视频。继续跑只会
                 # 把同一段无关文字填满整张表，比直接失败更难发现，所以立刻停。
                 if link and api is not None:
+                    # 只数"真的拿到了地址"的行：被跳过的行不算，否则跳过一批之后
+                    # 会把"只有一条链接"误判成"所有链接都一样"。
+                    linked_rows["n"] += 1
                     seen_links.setdefault(link, row_idx)
-                    if len(seen_links) == 1 and len(pending_rows) > 1 and idx >= 8:
+                    linked = linked_rows["n"]
+                    if len(seen_links) == 1 and linked >= 8:
                         msg = (
                             f"已停下，避免把错误内容写满表格。\n\n"
-                            f"前 {idx} 行是不同的作品，却都拿到了同一个视频地址：\n"
+                            f"前 {linked} 条不同的作品都拿到了同一个视频地址：\n"
                             f"{link[:90]}\n\n"
                             f"说明抖音接口没有按作品 id 返回对应的视频，"
                             f"拿到的内容是错的。\n"
@@ -665,6 +733,18 @@ class TranscriptGUI:
                         messagebox.showerror("地址重复，已停止", msg)
                         stopped_early = True
                         break
+            except PlaceholderUrlError as exc:
+                # 表格本身就没有这条的真实地址，跳过并写明，重新采集后再处理
+                ws.cell(row=row_idx, column=transcript_col,
+                        value="（表格里没有这条的真实视频地址，需要重新采集）")
+                skipped += 1
+                self._log(f"[{idx}/{len(pending_rows)}] 第 {row_idx} 行跳过：{exc}")
+                try:
+                    wb.save(excel_path)
+                except OSError as exc2:
+                    self._log(f"保存 Excel 文件失败（可能文件正被 Excel/WPS 打开着）：{exc2}")
+                    break
+                continue
             except douyin_api.NoVideoError as exc:
                 # 图文/图集没有音频，再试多少次都没用，标记掉免得每次重跑都卡在这
                 ws.cell(row=row_idx, column=transcript_col,
@@ -732,7 +812,7 @@ class TranscriptGUI:
 
         if not stopped_early:
             summary = f"《{os.path.basename(excel_path)}》处理完成：成功 {success} 条，失败 {failed} 条"
-            summary += f"，跳过 {skipped} 条图文作品。" if skipped else "。"
+            summary += f"，跳过 {skipped} 条（图文作品或表格里没有真实地址）。" if skipped else "。"
             self._log(summary)
 
     def _run_worker(self, links, mode, transcribe_args, output_dir, cookies_from_browser):
