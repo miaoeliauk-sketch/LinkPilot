@@ -44,7 +44,7 @@ except ImportError as exc:
         "找不到 douyin_excel_transcript.py，请确认它和本文件在同一个文件夹里。"
     ) from exc
 
-BUILD = "2026-09-22e"
+BUILD = "2026-09-22f"
 
 try:
     import douyin_api

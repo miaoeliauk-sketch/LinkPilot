@@ -61,6 +61,30 @@ def find_row(xlsx):
     die("表格里一条作品 id 都取不到。")
 
 
+def dump_response(api):
+    """把抖音那边的原始回应打出来——状态码、关键响应头、正文开头。"""
+    resp = getattr(api, "last_response", None)
+    if resp is None:
+        print("\n      （没拿到原始回应，可能请求根本没发出去）")
+        return
+    print("\n      ===== 抖音原始回应 =====")
+    print(f"      状态码: {getattr(resp, 'status_code', '?')}")
+    headers = getattr(resp, "headers", {}) or {}
+    for key in ("Content-Type", "Server", "x-tt-logid", "x-tt-trace-id", "Set-Cookie"):
+        for name, value in dict(headers).items():
+            if name.lower() == key.lower():
+                print(f"      {name}: {str(value)[:120]}")
+                break
+    body = getattr(resp, "text", "") or ""
+    print(f"      正文长度: {len(body)}")
+    if body.strip():
+        for line in body[:500].splitlines():
+            print(f"      | {line}")
+    else:
+        print("      | （正文是空的）")
+    print("      ========================")
+
+
 def probe(url):
     req = urllib.request.Request(
         url, headers={"User-Agent": UA, "Referer": REFERER}, method="GET")
@@ -117,8 +141,10 @@ def main():
     try:
         fresh = api.fresh_play_url(aweme_id)
     except douyin_api.DouyinApiError as e:
-        die(f"现取失败：{e}\n"
-            "   → 最常见原因是 cookies 过期。重新登录抖音、重新导出 cookies.txt 再试。")
+        print(f"      失败：{e}")
+        dump_response(api)
+        die("现取失败。上面那段「抖音原始回应」请整段截图发给我——"
+            "里面通常写着被拒的具体原因，凭它才能定位，不用猜。")
     except Exception as e:  # noqa: BLE001
         die(f"现取时出错：{type(e).__name__}: {e}")
 

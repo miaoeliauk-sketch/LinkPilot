@@ -140,6 +140,22 @@ class DouyinAPI:
                 raise DouyinApiError("缺少 curl_cffi 库，请运行： pip install curl_cffi")
             session = _CurlSession(timeout=20, impersonate=IMPERSONATE)
         self._session = session
+        # msToken / uifid 抖音网页端是从 cookie 里取出来、再当查询参数一起发的。
+        # 一直留空等于告诉服务器"我没有这两样"，是风控重点关照的特征，所以
+        # cookie 里有就带上。
+        jar = {}
+        for piece in cookie.split(";"):
+            if "=" in piece:
+                k, _, v = piece.partition("=")
+                jar[k.strip()] = v.strip()
+        self._cookie_params = {}
+        if jar.get("msToken"):
+            self._cookie_params["msToken"] = jar["msToken"]
+        for key in ("UIFID", "uifid"):
+            if jar.get(key):
+                self._cookie_params["uifid"] = jar[key]
+                break
+
         self._headers = {
             "Accept": "*/*",
             "Accept-Encoding": "*/*",
@@ -150,8 +166,10 @@ class DouyinAPI:
         }
 
     def _get_json(self, path: str, extra: dict) -> dict:
-        signed = sign_url(f"https://www.douyin.com{path}", {**BASE_PARAMS, **extra})
+        params = {**BASE_PARAMS, **self._cookie_params, **extra}
+        signed = sign_url(f"https://www.douyin.com{path}", params)
         resp = self._session.get(signed, headers=self._headers)
+        self.last_response = resp  # 诊断脚本要拿它看原始回应
         status = getattr(resp, "status_code", 200)
         if status == 403:
             raise DouyinApiError(
