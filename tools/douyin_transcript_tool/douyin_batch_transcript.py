@@ -37,6 +37,7 @@ import logging
 import os
 import random
 import re
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -357,6 +358,56 @@ def expand_link_to_videos(
 # 下载音频（yt-dlp）
 # --------------------------------------------------------------------------
 
+def _download_media_with_curl_cffi(url: str, dest_dir: str) -> "tuple[str, str]":
+    """
+    用 curl_cffi 把视频文件直接抓下来，返回 (文件路径, 视频id)。
+
+    为什么不用 yt-dlp 下这类直链：yt-dlp 走 Python 自带的 ssl，TLS 指纹一眼就不是
+    浏览器，抖音 CDN 会在握手阶段直接掐断，报
+    "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol"。
+    curl_cffi 能模拟真实 Chrome 的 TLS 握手，正好绕过这一层。
+    """
+    from curl_cffi.requests import Session as _S  # 延迟导入：没装也不影响其它功能
+
+    video_id = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
+    dest = os.path.join(dest_dir, f"{video_id}.mp4")
+    headers = {
+        "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/146.0.0.0 Safari/537.36"),
+        "Referer": "https://www.douyin.com/",
+        "Accept": "*/*",
+    }
+    # 超时别设太长：一条视频几秒就该下完，卡住的话 300 多行会拖到天亮
+    with _S(timeout=45, impersonate="chrome146") as session:
+        resp = session.get(url, headers=headers, stream=True)
+        if resp.status_code != 200:
+            raise RuntimeError(f"下载返回 HTTP {resp.status_code}")
+        written = 0
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content():
+                if chunk:
+                    f.write(chunk)
+                    written += len(chunk)
+    if written < 10240:
+        raise RuntimeError(f"下载到的文件只有 {written} 字节，不像是完整视频")
+    return dest, video_id
+
+
+def _extract_mp3(media_path: str, dest_dir: str, video_id: str) -> str:
+    """把下载好的视频转成 mp3。"""
+    mp3_path = os.path.join(dest_dir, f"{video_id}.mp3")
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", media_path, "-vn", "-acodec", "libmp3lame",
+         "-ab", "192k", mp3_path],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0 or not os.path.isfile(mp3_path):
+        tail = (result.stderr or b"").decode("utf-8", "replace")[-300:]
+        raise RuntimeError(f"ffmpeg 转码失败：{tail}")
+    return mp3_path
+
+
 def download_audio(
     link: str,
     output_dir: str,
@@ -380,6 +431,29 @@ def download_audio(
     "Fresh cookies (not necessarily logged in) are needed"，
     这时必须通过 --cookies-from-browser 或 --cookies-file 带上 cookies 才能下载。
     """
+    raw_dir = os.path.join(output_dir, "_audio_raw")
+
+    # 视频直链优先用 curl_cffi 下载：yt-dlp 的 TLS 指纹会被抖音 CDN 在握手阶段掐断
+    # （UNEXPECTED_EOF_WHILE_READING）。失败了再退回 yt-dlp，不影响其它站点。
+    if is_douyin_media_url(link) or is_direct_media_url(link):
+        try:
+            os.makedirs(raw_dir, exist_ok=True)
+            media_path, video_id = _download_media_with_curl_cffi(link, raw_dir)
+            mp3_path = _extract_mp3(media_path, raw_dir, video_id)
+            video_path = None
+            if keep_video_dir:
+                os.makedirs(keep_video_dir, exist_ok=True)
+                video_path = os.path.join(keep_video_dir, f"{video_id}.mp4")
+                shutil.move(media_path, video_path)
+            else:
+                try:
+                    os.remove(media_path)
+                except OSError:
+                    pass
+            return mp3_path, video_id, "", "", video_path
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("直链下载失败（%s），改用 yt-dlp 再试一次", exc)
+
     if yt_dlp is None:
         raise RuntimeError("未安装 yt-dlp，请先运行: pip install yt-dlp")
 
