@@ -606,6 +606,34 @@ class TranscriptGUI:
                 messagebox.showwarning("需要 Cookies 文件", msg)
                 return
 
+        # 开跑前拿第一条真视频试一次"现取地址"。成不成一次就知道，
+        # 不必等到失败几百次之后才发现 cookies 根本不能用。
+        if api is not None:
+            for row_idx in pending_rows:
+                aweme_id = douyin_api.extract_aweme_id(
+                    ws.cell(row=row_idx, column=id_col).value if id_col else None
+                ) or douyin_api.extract_aweme_id(ws.cell(row=row_idx, column=link_col).value)
+                if not aweme_id:
+                    continue
+                try:
+                    probe = api.fresh_play_url(aweme_id)
+                except douyin_api.NoVideoError:
+                    continue  # 图文作品，换下一条试
+                except douyin_api.DouyinApiError as exc:
+                    msg = (
+                        f"预检没通过，这批先不跑了。\n\n"
+                        f"用你选的 Cookies 文件去抖音要新地址时失败了：\n{exc}\n\n"
+                        f"最常见的原因是 cookies 过期或没真正登录。\n"
+                        f"请在浏览器里重新登录抖音，重新导出一份 cookies.txt 再试。"
+                    )
+                    self._log(msg.replace("\n\n", "\n"))
+                    messagebox.showerror("Cookies 用不了", msg)
+                    return
+                exp = douyin_api.url_expiry(probe)
+                left = f"，{(exp - time.time()) / 3600:.1f} 小时后到期" if exp else ""
+                self._log(f"预检通过：成功现取到新地址{left}。")
+                break
+
         self._log(f"共找到 {len(pending_rows)} 条待处理的行，开始处理...")
 
         success = 0
