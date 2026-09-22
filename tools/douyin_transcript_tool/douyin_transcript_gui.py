@@ -44,7 +44,7 @@ except ImportError as exc:
         "找不到 douyin_excel_transcript.py，请确认它和本文件在同一个文件夹里。"
     ) from exc
 
-BUILD = "2026-09-22f"
+BUILD = "2026-09-22g"
 
 try:
     import douyin_api
@@ -461,19 +461,18 @@ class TranscriptGUI:
 
         建不起来不算错误——会退回用表格里存的地址，只是那些地址过期后就下不动了。
         """
+        # cookies 是可选的：现取地址走的是抖音的免签名接口，不需要登录。
+        # 填了的话会多一条带签名的备用路线，仅此而已。
+        cookie = ""
         cookies_file = self.cookies_file_var.get().strip()
-        if not cookies_file:
-            self._log(
-                "没填\"Cookies 文件\"，只能用表格里存的地址。那些地址带签名、几小时就过期，"
-                "隔夜的表格基本都会 403。建议导出一份 cookies.txt 填到上面，就能每条现取新地址。"
-            )
-            return None
+        if cookies_file:
+            try:
+                cookie = douyin_api.cookie_header_from_file(cookies_file)
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"Cookies 文件读不了（{exc}），不影响，继续用免登录方式。")
         try:
-            api = douyin_api.DouyinAPI(douyin_api.cookie_header_from_file(cookies_file))
+            api = douyin_api.DouyinAPI(cookie)
         except douyin_api.DouyinApiError as exc:
-            self._log(f"读取 Cookies 文件失败：{exc}\n    先退回用表格里存的地址。")
-            return None
-        except Exception as exc:  # noqa: BLE001
             self._log(f"初始化抖音接口失败：{exc}\n    先退回用表格里存的地址。")
             return None
         self._log("已启用\"下载前现取地址\"，不再依赖表格里那些会过期的地址。")
@@ -598,12 +597,13 @@ class TranscriptGUI:
                     f"表格里存的视频地址是带签名的临时地址，已经全部过期"
                     f"（最后一条过期了 {hours:.0f} 小时）。用过期地址下载，"
                     f"每一条都会是 403 失败。\n\n"
-                    f"解决办法：在上面的「Cookies 文件」里选一份 cookies.txt"
-                    f"（浏览器装 Get cookies.txt LOCALLY 扩展，登录抖音后导出）。\n"
-                    f"填了之后，程序会在每次下载前现去抖音要一个新地址，表格放多久都不怕。"
+                    f"本来可以在下载前现去抖音要新地址，但这个功能没能启动"
+                    f"（多半是依赖没装全）。\n\n"
+                    f"解决办法：双击文件夹里的 install.command 重装一次依赖。\n"
+                    f"实在不行，就用采集工具重新导一份表格，导完立刻转写。"
                 )
                 self._log(msg.replace("\n\n", "\n"))
-                messagebox.showwarning("需要 Cookies 文件", msg)
+                messagebox.showwarning("这批跑不了", msg)
                 return
 
         # 开跑前拿第一条真视频试一次"现取地址"。成不成一次就知道，

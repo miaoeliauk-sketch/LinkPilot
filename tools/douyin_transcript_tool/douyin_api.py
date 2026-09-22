@@ -132,9 +132,12 @@ def sign_url(url: str, params: dict) -> str:
 class DouyinAPI:
     """调抖音网页接口。需要一份登录后的 cookie（"k=v; k=v" 形式的请求头）。"""
 
-    def __init__(self, cookie: str, session=None):
-        if not cookie or not cookie.strip():
-            raise DouyinApiError("cookie 为空。")
+    def __init__(self, cookie: str = "", session=None):
+        # cookie 是可选的：免签名那条路本来就不需要登录，只有带签名的备用路线才用得上。
+        cookie = (cookie or "").strip()
+        self.has_cookie = bool(cookie)
+        self.route_used = None
+        self.last_response = None
         if session is None:
             if _CurlSession is None:
                 raise DouyinApiError("缺少 curl_cffi 库，请运行： pip install curl_cffi")
@@ -162,8 +165,12 @@ class DouyinAPI:
             "Referer": "https://www.douyin.com/?recommend=1",
             # 显式写死，保证"发出去的 UA"和"算签名用的 UA"逐字相同
             "User-Agent": UA,
-            "Cookie": cookie.strip(),
         }
+        if cookie:
+            self._headers["Cookie"] = cookie
+            if self._cookie_params.get("uifid"):
+                # Argus 第一道关卡查的是请求头里的 uifid，不是参数
+                self._headers["uifid"] = self._cookie_params["uifid"]
 
     def _get_json(self, path: str, extra: dict) -> dict:
         params = {**BASE_PARAMS, **self._cookie_params, **extra}
@@ -186,12 +193,55 @@ class DouyinAPI:
                 "接口没返回有效数据，通常是登录过期，请重新导出一份 cookies.txt。"
             ) from exc
 
+    def _detail_simple(self, aweme_id: str) -> dict:
+        """
+        免签名调法：只带 aweme_id 和 aid 两个参数，Referer 报 open.douyin.com，
+        不带 Cookie。这条路不经过 Argus 安全网关，所以不需要 a_bogus 之类的签名。
+
+        抖音 2026 年给详情接口加了 ArgusSecurityPlugin 之后，带全套浏览器参数 +
+        Cookie + a_bogus 的"正规"调法反而一律 403（Signature Not Found），因为
+        网关还要 x-secsdk-web-signature，而开源的签名库都生成不了。参数给少反而能过。
+        """
+        url = (f"https://www.douyin.com/aweme/v1/web/aweme/detail/"
+               f"?aweme_id={aweme_id}&aid=6383")
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": UA,
+            "Referer": "https://open.douyin.com/",
+            "Origin": "https://open.douyin.com",
+        }
+        resp = self._session.get(url, headers=headers)
+        self.last_response = resp
+        status = getattr(resp, "status_code", 200)
+        if status != 200:
+            raise DouyinApiError(f"免签名接口返回 HTTP {status}")
+        try:
+            return resp.json()
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise DouyinApiError("免签名接口没返回有效 JSON") from exc
+
     def aweme_detail(self, aweme_id: str) -> dict:
-        data = self._get_json("/aweme/v1/web/aweme/detail/", {"aweme_id": str(aweme_id)})
-        detail = data.get("aweme_detail")
-        if not detail:
-            raise DouyinApiError(f"没查到作品 {aweme_id}（可能已删除或设为私密）")
-        return detail
+        aweme_id = str(aweme_id)
+        routes = [("免签名", self._detail_simple)]
+        if self.has_cookie:
+            # 带签名这条现在基本被 Argus 挡死，只当备用；没 cookie 就更没必要试
+            routes.append(("带签名", lambda i: self._get_json(
+                "/aweme/v1/web/aweme/detail/", {"aweme_id": i})))
+        attempts = []
+        for name, fetch in routes:
+            try:
+                data = fetch(aweme_id)
+            except DouyinApiError as exc:
+                attempts.append(f"{name}：{exc}")
+                continue
+            detail = data.get("aweme_detail")
+            if detail:
+                self.route_used = name
+                return detail
+            attempts.append(f"{name}：返回里没有作品数据")
+        raise DouyinApiError(
+            f"没查到作品 {aweme_id}。两条路都试过了——" + "；".join(attempts)
+        )
 
     def fresh_play_url(self, aweme_id: str) -> str:
         """为一条作品现取一个新的播放地址。拿不到就抛 DouyinApiError。"""
